@@ -21,6 +21,19 @@
 - [2026-10-11] Weather now (2 hourly) by area Accordion & Placement: Moved the `Weather now (2 hourly) by area` section to appear after `Weather forecast for Singapore`, and collapsed it by default into an expandable/collapsible accordion.
 - [2026-10-11] PSI Selected Region Layout & Persistence: The PSI section displays the selected region in a main large rectangle at the top, with the remaining 4 unselected regions arranged in a 2x2 grid of smaller rectangles below it. Clicking any of the 4 smaller rectangles (or entering a postal code / using geolocation) selects that region, and the user's region selection is preserved in `localStorage`. All existing copy inside the cards remains unchanged.
 - [2026-10-11] MCP Server Status Section: Added a `Smithery MCP Service` status card below `Weather now (2 hourly) by area` displaying reachability status (`Reachable`), server URL (`https://server.smithery.ai/vdineshk/sg-weather-data-mcp`), 2-column `Latency` (`ms`) and `HTTP / Auth` cards, endpoint status description, `Authorization Server` (`https://auth.smithery.ai/vdineshk/sg-weather-data-mcp`), `Available MCP Weather Tools`, `Endpoint: /api/health` with `Checked HH:MM:SS` timestamp, and a full-width dark button to refresh/check the MCP server status.
+- [2026-10-11] PSI Selected Card 5-Range Visual Effects: The selected PSI region card compares its 24-hour PSI reading against the 5 numerical ranges and dynamically applies the corresponding visual theme matching the uploaded reference designs:
+  1. Good (PSI 0–50): Clear azure-blue to turquoise gradient (`Clear Sky`, `Optimal`), no haze particles.
+  2. Moderate (PSI 51–100): Soft teal-blue to pale olive-yellow gradient (`Hazy Sun`, `Acceptable`), subtle atmospheric haze particles.
+  3. Unhealthy (PSI 101–200): Warm amber-orange to golden-yellow gradient (`Dusty Haze`, `Warning`), medium haze particle overlay.
+  4. Very Unhealthy (PSI 201–300): Deep burnt-orange to rust-red gradient (`Thick Smog`, `Alert`), dense haze particle overlay.
+  5. Hazardous (PSI > 300): Dark crimson-maroon to charcoal-slate gradient (`Severe Smog`, `Emergency`), heavy haze particle overlay.
+- [2026-10-11] PSI Selected Card Content Refinement: Replaced the centered temperature with the large PSI reading number, and removed the subtitle (`Dusty Haze` / sky descriptor) and bottom translucent `PSI 24-HR` / `Warning` bar so the card cleanly displays `Singapore <Region>`, the PSI range badge, and the centered PSI number.
+- [2026-10-11] PSI Selected Card Badge Position: Moved the PSI range label (`Good`, `Moderate`, `Unhealthy`, `Very Unhealthy`, `Hazardous`) from the top-right corner to be centered directly below the large PSI number.
+- [2026-10-11] Unified Font System: Standardized typography across the entire user interface to use a single consistent sans-serif font family (`Plus Jakarta Sans`) with `tabular-nums` for all numbers, metrics, headings, and labels (removing mixed serif and monospace font families).
+
+
+
+
 
 
 

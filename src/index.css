@@ -1,19 +1,17 @@
 @import "tailwindcss";
 
 @layer base {
-  body {
+  body,
+  .font-sans,
+  .font-mono,
+  .font-serif-display {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    background-color: #f8fafc;
-    color: #0f172a;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  .font-mono {
-    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-variant-numeric: tabular-nums;
   }
 
-  .font-serif-display {
-    font-family: 'Cormorant Garamond', Georgia, serif;
+  body {
+    background-color: #f8fafc;
+    color: #0f172a;
+    -webkit-font-smoothing: antialiased;
   }
 }

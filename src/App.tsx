@@ -366,6 +366,109 @@ function getHeroWeatherIcon(forecast?: string) {
   return <Sun className="w-5 h-5 text-amber-500 shrink-0" aria-hidden="true" />;
 }
 
+interface PsiSelectedCardTheme {
+  rangeLabel: string;
+  skyDescriptor: string;
+  actionStatus: string;
+  cardGradientClass: string;
+  pillClass: string;
+  bottomBoxClass: string;
+  showParticles: boolean;
+  particleOpacityClass: string;
+}
+
+const HAZE_PARTICLES: Array<{ left: string; top: string; size: string }> = [
+  { left: '8%', top: '12%', size: 'w-1.5 h-1.5' },
+  { left: '16%', top: '24%', size: 'w-1 h-1' },
+  { left: '28%', top: '14%', size: 'w-1.5 h-1.5' },
+  { left: '42%', top: '19%', size: 'w-1 h-1' },
+  { left: '54%', top: '11%', size: 'w-1.5 h-1.5' },
+  { left: '68%', top: '22%', size: 'w-1 h-1' },
+  { left: '82%', top: '15%', size: 'w-1.5 h-1.5' },
+  { left: '92%', top: '28%', size: 'w-1 h-1' },
+  { left: '11%', top: '38%', size: 'w-1 h-1' },
+  { left: '23%', top: '44%', size: 'w-1.5 h-1.5' },
+  { left: '34%', top: '35%', size: 'w-1 h-1' },
+  { left: '49%', top: '42%', size: 'w-1.5 h-1.5' },
+  { left: '63%', top: '36%', size: 'w-1 h-1' },
+  { left: '77%', top: '46%', size: 'w-1.5 h-1.5' },
+  { left: '89%', top: '39%', size: 'w-1 h-1' },
+  { left: '9%', top: '58%', size: 'w-1.5 h-1.5' },
+  { left: '21%', top: '65%', size: 'w-1 h-1' },
+  { left: '37%', top: '59%', size: 'w-1.5 h-1.5' },
+  { left: '52%', top: '64%', size: 'w-1 h-1' },
+  { left: '66%', top: '57%', size: 'w-1.5 h-1.5' },
+  { left: '79%', top: '66%', size: 'w-1 h-1' },
+  { left: '91%', top: '60%', size: 'w-1.5 h-1.5' },
+  { left: '14%', top: '82%', size: 'w-1 h-1' },
+  { left: '31%', top: '88%', size: 'w-1.5 h-1.5' },
+  { left: '57%', top: '85%', size: 'w-1 h-1' },
+  { left: '74%', top: '91%', size: 'w-1.5 h-1.5' },
+  { left: '88%', top: '84%', size: 'w-1 h-1' },
+];
+
+function getPsiSelectedCardTheme(psi: number | undefined): PsiSelectedCardTheme {
+  const val = psi ?? 0;
+  if (val <= 50) {
+    return {
+      rangeLabel: 'Good',
+      skyDescriptor: 'Clear Sky',
+      actionStatus: 'Optimal',
+      cardGradientClass: 'bg-gradient-to-br from-[#3B93E6] via-[#34B3D1] to-[#2BCBBA]',
+      pillClass: 'bg-white/20 border-white/35 text-white',
+      bottomBoxClass: 'bg-[#1D6F7A]/65 border-white/15',
+      showParticles: false,
+      particleOpacityClass: 'opacity-0',
+    };
+  }
+  if (val <= 100) {
+    return {
+      rangeLabel: 'Moderate',
+      skyDescriptor: 'Hazy Sun',
+      actionStatus: 'Acceptable',
+      cardGradientClass: 'bg-gradient-to-br from-[#6C9EAB] via-[#8DAE73] to-[#C2D548]',
+      pillClass: 'bg-white/20 border-white/35 text-white',
+      bottomBoxClass: 'bg-[#5E6D3B]/65 border-white/15',
+      showParticles: true,
+      particleOpacityClass: 'opacity-20',
+    };
+  }
+  if (val <= 200) {
+    return {
+      rangeLabel: 'Unhealthy',
+      skyDescriptor: 'Dusty Haze',
+      actionStatus: 'Warning',
+      cardGradientClass: 'bg-gradient-to-br from-[#E27B18] via-[#E99A15] to-[#F1B711]',
+      pillClass: 'bg-white/15 border-white/35 text-white',
+      bottomBoxClass: 'bg-[#8F5B0A]/65 border-white/15',
+      showParticles: true,
+      particleOpacityClass: 'opacity-30',
+    };
+  }
+  if (val <= 300) {
+    return {
+      rangeLabel: 'Very Unhealthy',
+      skyDescriptor: 'Thick Smog',
+      actionStatus: 'Alert',
+      cardGradientClass: 'bg-gradient-to-br from-[#C84A09] via-[#D94D1A] to-[#EA512D]',
+      pillClass: 'bg-white/15 border-white/35 text-white',
+      bottomBoxClass: 'bg-[#7A260D]/70 border-white/15',
+      showParticles: true,
+      particleOpacityClass: 'opacity-35',
+    };
+  }
+  return {
+    rangeLabel: 'Hazardous',
+    skyDescriptor: 'Severe Smog',
+    actionStatus: 'Emergency',
+    cardGradientClass: 'bg-gradient-to-br from-[#751E19] via-[#4D2A2C] to-[#2A333E]',
+    pillClass: 'bg-[#6E221F]/80 border-white/25 text-white',
+    bottomBoxClass: 'bg-[#1F242D]/80 border-white/15',
+    showParticles: true,
+    particleOpacityClass: 'opacity-40',
+  };
+}
+
 function getPsiDescriptor(psi: number | undefined): { label: string; colorClass: string } {
   if (psi === undefined || Number.isNaN(psi)) {
     return { label: 'N/A', colorClass: 'text-slate-500' };
@@ -821,21 +924,48 @@ export default function App() {
                 <div className="pt-3 space-y-2.5">
                   {(() => {
                     const activeVal = psi24h[selectedRegion];
-                    const activeStatus = getPsiDescriptor(activeVal);
+                    const theme = getPsiSelectedCardTheme(activeVal);
                     const unselectedRegions = REGIONS.filter((r) => r !== selectedRegion);
 
                     return (
                       <>
-                        {/* Main large rectangle for the selected region */}
-                        <div className="border border-slate-200 rounded-xl p-4 bg-white">
-                          <div className="text-xs text-slate-500 capitalize">
-                            {selectedRegion}
+                        {/* Main large rectangle for the selected region styled according to the 5 PSI ranges */}
+                        <div
+                          className={`relative overflow-hidden rounded-3xl p-5 text-white shadow-sm transition-colors duration-300 ${theme.cardGradientClass}`}
+                        >
+                          {/* Atmospheric haze particles for Moderate, Unhealthy, Very Unhealthy, and Hazardous ranges */}
+                          {theme.showParticles && (
+                            <div
+                              className={`pointer-events-none absolute inset-0 ${theme.particleOpacityClass}`}
+                              aria-hidden="true"
+                            >
+                              {HAZE_PARTICLES.map((pt, i) => (
+                                <span
+                                  key={i}
+                                  style={{ left: pt.left, top: pt.top }}
+                                  className={`absolute rounded-full bg-white ${pt.size}`}
+                                />
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Top header row: Singapore <Region> */}
+                          <div className="relative z-10 flex items-start justify-between gap-3">
+                            <div className="text-lg font-semibold tracking-tight leading-snug capitalize">
+                              Singapore {selectedRegion}
+                            </div>
                           </div>
-                          <div className="mt-1.5 text-3xl font-semibold font-mono text-slate-900">
-                            {activeVal ?? '—'}
-                          </div>
-                          <div className={`mt-1 text-xs font-medium ${activeStatus.colorClass}`}>
-                            {activeStatus.label}
+
+                          {/* Center PSI Number & Range Label below it */}
+                          <div className="relative z-10 my-6 flex flex-col items-center text-center">
+                            <div className="text-5xl font-bold tracking-tight leading-none tabular-nums drop-shadow-xs">
+                              {activeVal ?? '—'}
+                            </div>
+                            <span
+                              className={`mt-3 px-3.5 py-1 rounded-full border text-xs font-semibold tracking-wide backdrop-blur-xs ${theme.pillClass}`}
+                            >
+                              {theme.rangeLabel}
+                            </span>
                           </div>
                         </div>
 
@@ -947,12 +1077,12 @@ export default function App() {
                     <span className="font-mono text-[11px]">1.2897°, 103.8501°</span>
                   </div>
 
-                  <div className="mt-1.5 text-3xl font-serif-display font-semibold tracking-tight text-slate-900">
+                  <div className="mt-1.5 text-2xl font-bold tracking-tight text-slate-900">
                     Singapore
                   </div>
 
                   <div className="mt-2 flex items-end justify-between gap-3">
-                    <div className="text-6xl font-mono font-bold tracking-tight text-slate-900 leading-none">
+                    <div className="text-5xl font-bold tracking-tight text-slate-900 leading-none tabular-nums">
                       {rawForecast?.current_metrics?.temperature ??
                         (general24h?.temperature?.low && general24h?.temperature?.high
                           ? Math.round((general24h.temperature.low + general24h.temperature.high) / 2)
