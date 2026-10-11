@@ -1,0 +1,4 @@
+[2026-10-10] React Warning: Each child in a list should have a unique "key" prop in App.tsx (Resolved: updated WeatherNowArea item key mapping to use item.area and index).
+[2026-10-10] API Error: /api/health.js returned HTTP 401 Unauthorized when SMITHERY_API_KEY was not yet configured in Vercel environment variables (Resolved: configured SMITHERY_API_KEY in Vercel and updated api/health.js and api/bus.js).
+[2026-10-11] Git Error: fatal: not a git repository (or any of the parent directories): .git after container restart (Resolved: re-initialized git repository, fetched remote main history, and pushed changes).
+
