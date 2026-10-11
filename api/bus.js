@@ -1,37 +1,13 @@
 const BASE_MCP_URL = 'https://server.smithery.ai/vdineshk/sg-weather-data-mcp';
 
-const IGNORED_ENV_KEYS = new Set([
-  'GEMINI_API_KEY',
-  'APP_URL',
-  'PORT',
-  'NODE_ENV',
-  'PATH',
-  'HOME',
-  'PWD',
-]);
-
 function getApiKey() {
-  const explicit =
+  const key =
     process.env.SMITHERY_API_KEY ||
-    process.env.SMITHERY_KEY ||
+    process.env.Smithery_API_Key ||
     process.env.MCP_API_KEY ||
-    process.env.MCP_KEY ||
     process.env.API_KEY ||
-    process.env.BEARER_TOKEN ||
-    process.env.MCP_SERVER_KEY;
-
-  if (explicit) return explicit.trim();
-
-  for (const [k, v] of Object.entries(process.env)) {
-    if (!v || IGNORED_ENV_KEYS.has(k) || k.startsWith('VITE_') || k.startsWith('VERCEL') || k.startsWith('npm_')) {
-      continue;
-    }
-    const upper = k.toUpperCase();
-    if (upper.includes('SMITHERY') || upper.includes('MCP') || upper.endsWith('_API_KEY') || upper.endsWith('_TOKEN')) {
-      return v.trim();
-    }
-  }
-  return '';
+    '';
+  return key.trim();
 }
 
 const ASEAN_FALLBACK = [
@@ -168,27 +144,38 @@ async function callMcpTool(toolName, args, key) {
     'Content-Type': 'application/json',
     'Accept': 'application/json, text/event-stream',
   };
-  let targetUrl = BASE_MCP_URL;
   if (key) {
     headers['Authorization'] = `Bearer ${key}`;
-    const urlObj = new URL(BASE_MCP_URL);
-    urlObj.searchParams.set('api_key', key);
-    targetUrl = urlObj.toString();
   }
 
-  const response = await fetch(targetUrl, {
+  const payload = JSON.stringify({
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: 'tools/call',
+    params: {
+      name: toolName,
+      arguments: args || {},
+    },
+  });
+
+  let response = await fetch(BASE_MCP_URL, {
     method: 'POST',
     headers,
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: Date.now(),
-      method: 'tools/call',
-      params: {
-        name: toolName,
-        arguments: args || {},
-      },
-    }),
+    body: payload,
   });
+
+  if (!response.ok && key) {
+    const urlObj = new URL(BASE_MCP_URL);
+    urlObj.searchParams.set('api_key', key);
+    const retry = await fetch(urlObj.toString(), {
+      method: 'POST',
+      headers,
+      body: payload,
+    });
+    if (retry.ok) {
+      response = retry;
+    }
+  }
 
   if (!response.ok) {
     return {

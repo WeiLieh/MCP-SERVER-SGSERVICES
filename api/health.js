@@ -1,65 +1,57 @@
 const BASE_MCP_URL = 'https://server.smithery.ai/vdineshk/sg-weather-data-mcp';
 
-const IGNORED_ENV_KEYS = new Set([
-  'GEMINI_API_KEY',
-  'APP_URL',
-  'PORT',
-  'NODE_ENV',
-  'PATH',
-  'HOME',
-  'PWD',
-]);
-
 function getApiKey() {
-  const explicit =
+  const key =
     process.env.SMITHERY_API_KEY ||
-    process.env.SMITHERY_KEY ||
+    process.env.Smithery_API_Key ||
     process.env.MCP_API_KEY ||
-    process.env.MCP_KEY ||
     process.env.API_KEY ||
-    process.env.BEARER_TOKEN ||
-    process.env.MCP_SERVER_KEY;
+    '';
+  return key.trim();
+}
 
-  if (explicit) return explicit.trim();
-
-  for (const [k, v] of Object.entries(process.env)) {
-    if (!v || IGNORED_ENV_KEYS.has(k) || k.startsWith('VITE_') || k.startsWith('VERCEL') || k.startsWith('npm_')) {
-      continue;
-    }
-    const upper = k.toUpperCase();
-    if (upper.includes('SMITHERY') || upper.includes('MCP') || upper.endsWith('_API_KEY') || upper.endsWith('_TOKEN')) {
-      return v.trim();
-    }
-  }
-  return '';
+async function probeMcp(url, headers) {
+  return fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/list',
+      params: {},
+    }),
+  });
 }
 
 export default async function handler(req, res) {
   try {
     const key = getApiKey();
-    const headers = {
+    const baseHeaders = {
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/event-stream',
     };
 
-    let targetUrl = BASE_MCP_URL;
+    let response;
     if (key) {
-      headers['Authorization'] = `Bearer ${key}`;
-      const urlObj = new URL(BASE_MCP_URL);
-      urlObj.searchParams.set('api_key', key);
-      targetUrl = urlObj.toString();
-    }
+      response = await probeMcp(BASE_MCP_URL, {
+        ...baseHeaders,
+        Authorization: `Bearer ${key}`,
+      });
 
-    const response = await fetch(targetUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'tools/list',
-        params: {},
-      }),
-    });
+      if (!response.ok) {
+        const urlWithParam = new URL(BASE_MCP_URL);
+        urlWithParam.searchParams.set('api_key', key);
+        const retryResponse = await probeMcp(urlWithParam.toString(), {
+          ...baseHeaders,
+          Authorization: `Bearer ${key}`,
+        });
+        if (retryResponse.ok) {
+          response = retryResponse;
+        }
+      }
+    } else {
+      response = await probeMcp(BASE_MCP_URL, baseHeaders);
+    }
 
     if (!response.ok) {
       return res.status(response.status).json({
@@ -68,8 +60,8 @@ export default async function handler(req, res) {
         status: response.status,
         keyConfigured: Boolean(key),
         reason: key
-          ? `Upstream MCP server returned HTTP ${response.status} (verify your Smithery API key is valid)`
-          : `Upstream MCP server returned HTTP ${response.status} (missing Smithery API key in environment variables)`,
+          ? `Upstream MCP server returned HTTP ${response.status}`
+          : `Upstream MCP server returned HTTP ${response.status} (SMITHERY_API_KEY is not set in environment)`,
       });
     }
 
