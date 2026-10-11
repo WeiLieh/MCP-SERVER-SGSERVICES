@@ -24,6 +24,7 @@ async function probeMcp(url, headers) {
 }
 
 export default async function handler(req, res) {
+  const startTime = Date.now();
   try {
     const key = getApiKey();
     const baseHeaders = {
@@ -53,11 +54,14 @@ export default async function handler(req, res) {
       response = await probeMcp(BASE_MCP_URL, baseHeaders);
     }
 
+    const latencyMs = Date.now() - startTime;
+
     if (!response.ok) {
       return res.status(response.status).json({
         answered: true,
         ok: false,
         status: response.status,
+        latencyMs,
         keyConfigured: Boolean(key),
         reason: key
           ? `Upstream MCP server returned HTTP ${response.status}`
@@ -71,14 +75,17 @@ export default async function handler(req, res) {
       answered: true,
       ok: true,
       status: response.status,
+      latencyMs,
       keyConfigured: Boolean(key),
       reason: 'MCP server answered successfully',
     });
   } catch {
+    const latencyMs = Date.now() - startTime;
     return res.status(502).json({
       answered: false,
       ok: false,
       status: 502,
+      latencyMs,
       reason: 'Upstream MCP server unreachable or network failure',
     });
   }

@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 import {
+  CheckCircle2,
   ChevronDown,
+  Clock,
   Cloud,
   CloudLightning,
   CloudRain,
@@ -8,9 +10,14 @@ import {
   Compass,
   Droplets,
   MapPin,
+  RefreshCw,
   Search,
+  Server,
+  Shield,
   Sun,
+  Wrench,
   Wind,
+  XCircle,
 } from 'lucide-react';
 
 interface PsiRegionValues {
@@ -142,6 +149,15 @@ interface BusResponse {
     countries?: AseanCountryClimate[];
   } | AseanCountryClimate[];
   status?: number;
+  reason?: string;
+}
+
+interface HealthStatus {
+  answered: boolean;
+  ok: boolean;
+  status: number;
+  latencyMs: number;
+  checkedAt: string;
   reason?: string;
 }
 
@@ -391,10 +407,78 @@ export default function App() {
   const [postalInput, setPostalInput] = useState<string>('');
   const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
-  const [selectedRegion, setSelectedRegion] = useState<SgRegion | null>(null);
+  const [selectedRegion, setSelectedRegion] = useState<SgRegion>(() => {
+    try {
+      const saved = localStorage.getItem('sg_weather_selected_region');
+      if (saved && REGIONS.includes(saved as SgRegion)) {
+        return saved as SgRegion;
+      }
+    } catch {
+      // Ignore storage access errors
+    }
+    return 'central';
+  });
   const [locating, setLocating] = useState<boolean>(false);
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [weatherNowOpen, setWeatherNowOpen] = useState<boolean>(false);
+  const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
+  const [checkingHealth, setCheckingHealth] = useState<boolean>(false);
+
+  async function checkMcpHealth() {
+    setCheckingHealth(true);
+    const t0 = performance.now();
+    try {
+      const res = await fetch('/api/health');
+      const elapsed = Math.round(performance.now() - t0);
+      const json = await res.json().catch(() => ({}));
+      const nowTime = new Date().toLocaleTimeString('en-SG', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Singapore',
+      });
+      setHealthStatus({
+        answered: json.answered ?? res.status < 500,
+        ok: Boolean(json.ok),
+        status: json.status || res.status,
+        latencyMs: typeof json.latencyMs === 'number' ? json.latencyMs : elapsed,
+        checkedAt: nowTime,
+        reason: json.reason,
+      });
+    } catch {
+      const elapsed = Math.round(performance.now() - t0);
+      const nowTime = new Date().toLocaleTimeString('en-SG', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Singapore',
+      });
+      setHealthStatus({
+        answered: false,
+        ok: false,
+        status: 502,
+        latencyMs: elapsed,
+        checkedAt: nowTime,
+        reason: 'Upstream MCP server unreachable',
+      });
+    } finally {
+      setCheckingHealth(false);
+    }
+  }
+
+  useEffect(() => {
+    checkMcpHealth();
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sg_weather_selected_region', selectedRegion);
+    } catch {
+      // Ignore storage access errors
+    }
+  }, [selectedRegion]);
 
   useEffect(() => {
     let cancelled = false;
@@ -734,30 +818,53 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5 pt-3">
-                  {REGIONS.map((region) => {
-                    const val = psi24h[region];
-                    const status = getPsiDescriptor(val);
-                    const isHighlighted = selectedRegion === region;
+                <div className="pt-3 space-y-2.5">
+                  {(() => {
+                    const activeVal = psi24h[selectedRegion];
+                    const activeStatus = getPsiDescriptor(activeVal);
+                    const unselectedRegions = REGIONS.filter((r) => r !== selectedRegion);
+
                     return (
-                      <div
-                        key={region}
-                        className={`border p-2.5 rounded-lg ${
-                          isHighlighted
-                            ? 'border-slate-900 bg-slate-900/5'
-                            : 'border-slate-200 bg-slate-50/50'
-                        }`}
-                      >
-                        <div className="text-xs text-slate-500 capitalize">{region}</div>
-                        <div className="mt-0.5 text-xl font-semibold font-mono text-slate-900">
-                          {val ?? '—'}
+                      <>
+                        {/* Main large rectangle for the selected region */}
+                        <div className="border border-slate-200 rounded-xl p-4 bg-white">
+                          <div className="text-xs text-slate-500 capitalize">
+                            {selectedRegion}
+                          </div>
+                          <div className="mt-1.5 text-3xl font-semibold font-mono text-slate-900">
+                            {activeVal ?? '—'}
+                          </div>
+                          <div className={`mt-1 text-xs font-medium ${activeStatus.colorClass}`}>
+                            {activeStatus.label}
+                          </div>
                         </div>
-                        <div className={`text-[11px] font-medium ${status.colorClass}`}>
-                          {status.label}
+
+                        {/* 4 smaller rectangles below for the unselected regions */}
+                        <div className="grid grid-cols-2 gap-2.5">
+                          {unselectedRegions.map((region) => {
+                            const val = psi24h[region];
+                            const status = getPsiDescriptor(val);
+                            return (
+                              <button
+                                key={region}
+                                type="button"
+                                onClick={() => setSelectedRegion(region)}
+                                className="border border-slate-200 p-2.5 rounded-lg bg-slate-50/50 hover:bg-slate-100/70 transition-colors text-left cursor-pointer"
+                              >
+                                <div className="text-xs text-slate-500 capitalize">{region}</div>
+                                <div className="mt-0.5 text-xl font-semibold font-mono text-slate-900">
+                                  {val ?? '—'}
+                                </div>
+                                <div className={`text-[11px] font-medium ${status.colorClass}`}>
+                                  {status.label}
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
-                      </div>
+                      </>
                     );
-                  })}
+                  })()}
                 </div>
 
                 <div className="mt-4 overflow-x-auto">
@@ -982,6 +1089,109 @@ export default function App() {
                     })}
                   </div>
                 )}
+              </section>
+
+              {/* Section 4: Smithery MCP Service Status below Weather now */}
+              <section
+                aria-labelledby="heading-mcp-status"
+                className="bg-white border border-slate-200 p-5 rounded-2xl"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Server className="w-4 h-4 text-slate-700 shrink-0" aria-hidden="true" />
+                    <h2 id="heading-mcp-status" className="text-sm font-semibold text-slate-900">
+                      Smithery MCP Service
+                    </h2>
+                  </div>
+                  {healthStatus?.answered !== false ? (
+                    <div className="flex items-center gap-1 text-xs font-medium text-emerald-600 shrink-0">
+                      <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Reachable</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 text-xs font-medium text-rose-600 shrink-0">
+                      <XCircle className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Unreachable</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-1 font-mono text-xs text-slate-500 break-all">
+                  https://server.smithery.ai/vdineshk/sg-weather-data-mcp
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 gap-3">
+                  <div className="bg-slate-50/70 rounded-2xl p-3.5">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
+                      <span>Latency</span>
+                    </div>
+                    <div className="mt-1.5 text-lg font-mono font-bold text-slate-900">
+                      {healthStatus ? `${healthStatus.latencyMs} ms` : '— ms'}
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50/70 rounded-2xl p-3.5">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <Shield className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
+                      <span>HTTP / Auth</span>
+                    </div>
+                    <div className="mt-1.5 text-sm leading-snug">
+                      <span className="font-mono font-bold text-slate-900">
+                        HTTP {healthStatus?.status ?? 200}
+                      </span>
+                      <span className="text-slate-400 mx-1">·</span>
+                      <span className="text-xs text-slate-600">
+                        {healthStatus?.status === 200 ? 'Authenticated' : 'OAuth Protected'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-slate-100 space-y-3 text-xs">
+                  <p className="text-slate-600 leading-relaxed">
+                    {healthStatus?.answered !== false
+                      ? 'Smithery MCP endpoint (vdineshk/sg-weather-data-mcp) is online and responding.'
+                      : 'Smithery MCP endpoint (vdineshk/sg-weather-data-mcp) is currently unreachable.'}
+                  </p>
+
+                  <div>
+                    <div className="text-slate-400 mb-0.5">Authorization Server</div>
+                    <div className="font-mono text-slate-700 break-all">
+                      https://auth.smithery.ai/vdineshk/sg-weather-data-mcp
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-1.5 text-slate-400 mb-1">
+                      <Wrench className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
+                      <span>Available MCP Weather Tools</span>
+                    </div>
+                    <div className="font-mono text-slate-700 leading-relaxed">
+                      get_sg_psi · get_sg_weather_now · get_sg_forecast · get_asean_climate
+                    </div>
+                  </div>
+
+                  <div className="pt-1 flex items-center justify-between text-[11px] text-slate-400">
+                    <span>Endpoint: /api/health</span>
+                    <span className="font-mono">
+                      Checked {healthStatus?.checkedAt || '—'}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={checkMcpHealth}
+                    disabled={checkingHealth}
+                    className="mt-1 w-full h-11 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${checkingHealth ? 'animate-spin' : ''}`}
+                      aria-hidden="true"
+                    />
+                    <span>Check MCP Server Status</span>
+                  </button>
+                </div>
               </section>
             </div>
           )}

@@ -19,6 +19,10 @@
 - [2026-10-11] Weather Forecast for Singapore Card Layout: Removed the `Period` regional table section. Replaced the 24h outlook 4-box grid with the hero Singapore weather card layout displaying location (`Singapore, Singapore · 1.2897°, 103.8501°`), serif `Singapore` heading, large monospace temperature (`°C`), weather condition with icon, `Feels °C`, `H ° · L °`, and a 2x2 grid of soft rounded cards for `Humidity`, `Wind Speed`, `UV Index`, and `Pressure`.
 - [2026-10-11] Weather Forecast for Singapore Card Refinements: Removed `Feels °C` line, removed `UV Index` and `Pressure` cards (retaining `Humidity` and `Wind Speed` side by side), and made the top Low and High temperature range format consistent with the 4-Day Forecast (`Low° / High°` with muted low temperature and bold high temperature).
 - [2026-10-11] Weather now (2 hourly) by area Accordion & Placement: Moved the `Weather now (2 hourly) by area` section to appear after `Weather forecast for Singapore`, and collapsed it by default into an expandable/collapsible accordion.
+- [2026-10-11] PSI Selected Region Layout & Persistence: The PSI section displays the selected region in a main large rectangle at the top, with the remaining 4 unselected regions arranged in a 2x2 grid of smaller rectangles below it. Clicking any of the 4 smaller rectangles (or entering a postal code / using geolocation) selects that region, and the user's region selection is preserved in `localStorage`. All existing copy inside the cards remains unchanged.
+- [2026-10-11] MCP Server Status Section: Added a `Smithery MCP Service` status card below `Weather now (2 hourly) by area` displaying reachability status (`Reachable`), server URL (`https://server.smithery.ai/vdineshk/sg-weather-data-mcp`), 2-column `Latency` (`ms`) and `HTTP / Auth` cards, endpoint status description, `Authorization Server` (`https://auth.smithery.ai/vdineshk/sg-weather-data-mcp`), `Available MCP Weather Tools`, `Endpoint: /api/health` with `Checked HH:MM:SS` timestamp, and a full-width dark button to refresh/check the MCP server status.
+
+
 
 
 
