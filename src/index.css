@@ -12,4 +12,8 @@
     font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-variant-numeric: tabular-nums;
   }
+
+  .font-serif-display {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+  }
 }

@@ -1,6 +1,6 @@
 {
   "name": "SG & ASEAN Weather",
   "description": "Singapore and ASEAN weather and climate information.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

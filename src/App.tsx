@@ -1,4 +1,17 @@
-import { useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
+import {
+  ChevronDown,
+  Cloud,
+  CloudLightning,
+  CloudRain,
+  CloudSun,
+  Compass,
+  Droplets,
+  MapPin,
+  Search,
+  Sun,
+  Wind,
+} from 'lucide-react';
 
 interface PsiRegionValues {
   national?: number;
@@ -100,6 +113,14 @@ interface ForecastPayload {
     }>;
     forecasts?: Forecast4DayItem[];
   };
+  current_metrics?: {
+    temperature?: number | null;
+    feels_like?: number | null;
+    humidity?: number | null;
+    wind_speed?: number | null;
+    uv_index?: number | null;
+    pressure?: number | null;
+  } | null;
   items?: any[];
 }
 
@@ -124,7 +145,210 @@ interface BusResponse {
   reason?: string;
 }
 
-const REGIONS = ['national', 'central', 'north', 'south', 'east', 'west'] as const;
+const REGIONS = ['central', 'north', 'south', 'east', 'west'] as const;
+type SgRegion = (typeof REGIONS)[number];
+
+const REGION_COORDS: Record<SgRegion, { lat: number; lon: number }> = {
+  central: { lat: 1.35735, lon: 103.82 },
+  east: { lat: 1.35735, lon: 103.94 },
+  north: { lat: 1.41803, lon: 103.82 },
+  south: { lat: 1.29587, lon: 103.82 },
+  west: { lat: 1.35735, lon: 103.7 },
+};
+
+const REFERENCE_LOCATIONS: Array<{
+  postal: string;
+  address: string;
+  lat: number;
+  lon: number;
+  region: SgRegion;
+}> = [
+  { postal: '238823', address: 'ORCHARD ROAD ISTANA SINGAPORE 238823', lat: 1.3071, lon: 103.8425, region: 'central' },
+  { postal: '048619', address: '8 MARINA BOULEVARD MARINA BAY FINANCIAL CENTRE SINGAPORE 048619', lat: 1.2795, lon: 103.8543, region: 'south' },
+  { postal: '098585', address: '8 SENTOSA GATEWAY RESORTS WORLD SENTOSA SINGAPORE 098585', lat: 1.2568, lon: 103.8203, region: 'south' },
+  { postal: '310190', address: '190 TOA PAYOH CENTRAL HDB HUB SINGAPORE 310190', lat: 1.3326, lon: 103.8482, region: 'central' },
+  { postal: '529509', address: '10 TAMPINES CENTRAL 1 TAMPINES 1 SINGAPORE 529509', lat: 1.3541, lon: 103.9451, region: 'east' },
+  { postal: '819663', address: '78 AIRPORT BOULEVARD JEWEL CHANGI AIRPORT SINGAPORE 819663', lat: 1.3602, lon: 103.9898, region: 'east' },
+  { postal: '738099', address: '1 WOODLANDS SQUARE CAUSEWAY POINT SINGAPORE 738099', lat: 1.436, lon: 103.786, region: 'north' },
+  { postal: '769098', address: '930 YISHUN AVENUE 2 NORTHPOINT CITY SINGAPORE 769098', lat: 1.4294, lon: 103.8358, region: 'north' },
+  { postal: '569933', address: '53 ANG MO KIO AVENUE 3 AMK HUB SINGAPORE 569933', lat: 1.3691, lon: 103.8485, region: 'central' },
+  { postal: '608532', address: '50 JURONG GATEWAY ROAD JEM SINGAPORE 608532', lat: 1.3331, lon: 103.7436, region: 'west' },
+  { postal: '648886', address: '1 JURONG WEST CENTRAL 2 JURONG POINT SINGAPORE 648886', lat: 1.3396, lon: 103.7067, region: 'west' },
+];
+
+const SECTOR_FALLBACK: Record<string, { area: string; region: SgRegion; lat: number; lon: number }> = {
+  '01': { area: 'Raffles Place / Marina', region: 'south', lat: 1.281, lon: 103.851 },
+  '02': { area: 'Anson / Tanjong Pagar', region: 'south', lat: 1.275, lon: 103.845 },
+  '03': { area: 'Queenstown / Tiong Bahru', region: 'south', lat: 1.286, lon: 103.827 },
+  '04': { area: 'Telok Blangah / Harbourfront', region: 'south', lat: 1.266, lon: 103.821 },
+  '05': { area: 'Pasir Panjang / Clementi', region: 'west', lat: 1.285, lon: 103.776 },
+  '06': { area: 'High Street / Beach Road', region: 'central', lat: 1.292, lon: 103.85 },
+  '07': { area: 'Middle Road / Golden Mile', region: 'central', lat: 1.3, lon: 103.858 },
+  '08': { area: 'Little India / Farrer Park', region: 'central', lat: 1.309, lon: 103.854 },
+  '09': { area: 'Harbourfront / Sentosa', region: 'south', lat: 1.265, lon: 103.82 },
+  '10': { area: 'Bukit Timah / Holland', region: 'central', lat: 1.312, lon: 103.8 },
+  '11': { area: 'Novena / Thomson', region: 'central', lat: 1.325, lon: 103.825 },
+  '12': { area: 'Clementi / West Coast', region: 'west', lat: 1.315, lon: 103.765 },
+  '13': { area: 'Macpherson / Braddell', region: 'central', lat: 1.33, lon: 103.87 },
+  '14': { area: 'Geylang / Eunos', region: 'east', lat: 1.318, lon: 103.893 },
+  '15': { area: 'Katong / Joo Chiat', region: 'east', lat: 1.305, lon: 103.905 },
+  '16': { area: 'Bedok / Upper East Coast', region: 'east', lat: 1.315, lon: 103.94 },
+  '17': { area: 'Loyang / Changi', region: 'east', lat: 1.37, lon: 103.97 },
+  '18': { area: 'Tampines / Pasir Ris', region: 'east', lat: 1.355, lon: 103.945 },
+  '19': { area: 'Serangoon Garden / Hougang / Punggol', region: 'north', lat: 1.375, lon: 103.895 },
+  '20': { area: 'Bishan / Ang Mo Kio', region: 'central', lat: 1.355, lon: 103.845 },
+  '21': { area: 'Upper Bukit Timah / Clementi Park', region: 'west', lat: 1.338, lon: 103.775 },
+  '22': { area: 'Jurong / Boon Lay', region: 'west', lat: 1.335, lon: 103.72 },
+  '23': { area: 'Orchard / Cairnhill / River Valley', region: 'central', lat: 1.304, lon: 103.835 },
+  '24': { area: 'Tanglin / River Valley', region: 'central', lat: 1.298, lon: 103.825 },
+  '25': { area: 'Ardmore / Bukit Timah', region: 'central', lat: 1.315, lon: 103.82 },
+  '26': { area: 'Bukit Timah / Holland', region: 'central', lat: 1.325, lon: 103.795 },
+  '27': { area: 'Holland / Ghim Moh', region: 'west', lat: 1.312, lon: 103.788 },
+  '28': { area: 'Seletar / Yio Chu Kang', region: 'north', lat: 1.39, lon: 103.87 },
+  '29': { area: 'Thomson / Mount Pleasant', region: 'central', lat: 1.335, lon: 103.835 },
+  '30': { area: 'Novena / Thomson', region: 'central', lat: 1.32, lon: 103.842 },
+  '31': { area: 'Toa Payoh / Balestier', region: 'central', lat: 1.333, lon: 103.848 },
+  '32': { area: 'Balestier / Whampoa', region: 'central', lat: 1.325, lon: 103.855 },
+  '33': { area: 'Bendemeer / Kallang', region: 'central', lat: 1.32, lon: 103.865 },
+  '34': { area: 'Potong Pasir / Macpherson', region: 'central', lat: 1.332, lon: 103.868 },
+  '35': { area: 'Woodleigh / Bidadari', region: 'central', lat: 1.339, lon: 103.872 },
+  '36': { area: 'Macpherson / Tai Seng', region: 'central', lat: 1.335, lon: 103.885 },
+  '37': { area: 'Circuit Road / Pipit Road', region: 'central', lat: 1.327, lon: 103.886 },
+  '38': { area: 'Geylang / Aljunied', region: 'central', lat: 1.315, lon: 103.882 },
+  '39': { area: 'Mountbatten / Dakota', region: 'central', lat: 1.308, lon: 103.885 },
+  '40': { area: 'Paya Lebar / Eunos', region: 'east', lat: 1.32, lon: 103.898 },
+  '41': { area: 'Eunos / Kembangan', region: 'east', lat: 1.324, lon: 103.912 },
+  '42': { area: 'Joo Chiat / Marine Parade', region: 'east', lat: 1.31, lon: 103.906 },
+  '43': { area: 'Tanjong Katong / Mountbatten', region: 'east', lat: 1.302, lon: 103.895 },
+  '44': { area: 'Marine Parade / Siglap', region: 'east', lat: 1.305, lon: 103.92 },
+  '45': { area: 'Siglap / Frankel', region: 'east', lat: 1.312, lon: 103.925 },
+  '46': { area: 'Bedok / Chai Chee', region: 'east', lat: 1.325, lon: 103.93 },
+  '47': { area: 'Bedok Reservoir / Kaki Bukit', region: 'east', lat: 1.336, lon: 103.922 },
+  '48': { area: 'Simei / Expo / Changi Business Park', region: 'east', lat: 1.342, lon: 103.955 },
+  '49': { area: 'Changi Village / Loyang', region: 'east', lat: 1.385, lon: 103.985 },
+  '50': { area: 'Loyang / Changi', region: 'east', lat: 1.368, lon: 103.968 },
+  '51': { area: 'Pasir Ris', region: 'east', lat: 1.372, lon: 103.95 },
+  '52': { area: 'Tampines', region: 'east', lat: 1.353, lon: 103.945 },
+  '53': { area: 'Hougang / Serangoon', region: 'north', lat: 1.362, lon: 103.888 },
+  '54': { area: 'Sengkang', region: 'north', lat: 1.392, lon: 103.895 },
+  '55': { area: 'Serangoon / Lorong Chuan', region: 'central', lat: 1.354, lon: 103.868 },
+  '56': { area: 'Ang Mo Kio', region: 'central', lat: 1.37, lon: 103.845 },
+  '57': { area: 'Bishan / Sin Ming / Upper Thomson', region: 'central', lat: 1.355, lon: 103.835 },
+  '58': { area: 'Bukit Timah / Clementi Park', region: 'west', lat: 1.34, lon: 103.778 },
+  '59': { area: 'King Albert Park / Sunset Way', region: 'west', lat: 1.332, lon: 103.775 },
+  '60': { area: 'Jurong East', region: 'west', lat: 1.333, lon: 103.742 },
+  '61': { area: 'Jurong West / Taman Jurong', region: 'west', lat: 1.335, lon: 103.722 },
+  '62': { area: 'Pioneer / Tuas', region: 'west', lat: 1.32, lon: 103.68 },
+  '63': { area: 'Tuas', region: 'west', lat: 1.315, lon: 103.65 },
+  '64': { area: 'Jurong West / Boon Lay', region: 'west', lat: 1.342, lon: 103.705 },
+  '65': { area: 'Bukit Batok', region: 'west', lat: 1.352, lon: 103.752 },
+  '66': { area: 'Hillview / Dairy Farm', region: 'west', lat: 1.362, lon: 103.765 },
+  '67': { area: 'Bukit Panjang', region: 'west', lat: 1.378, lon: 103.765 },
+  '68': { area: 'Choa Chu Kang', region: 'west', lat: 1.385, lon: 103.745 },
+  '69': { area: 'Tengah / Lim Chu Kang', region: 'west', lat: 1.375, lon: 103.71 },
+  '70': { area: 'Lim Chu Kang / Sungei Gedong', region: 'west', lat: 1.41, lon: 103.7 },
+  '71': { area: 'Lim Chu Kang', region: 'north', lat: 1.425, lon: 103.715 },
+  '72': { area: 'Kranji / Mandai', region: 'north', lat: 1.42, lon: 103.755 },
+  '73': { area: 'Woodlands / Marsiling', region: 'north', lat: 1.436, lon: 103.786 },
+  '75': { area: 'Sembawang', region: 'north', lat: 1.448, lon: 103.82 },
+  '76': { area: 'Yishun', region: 'north', lat: 1.428, lon: 103.835 },
+  '77': { area: 'Upper Thomson / Springleaf', region: 'north', lat: 1.4, lon: 103.818 },
+  '78': { area: 'Lentor / Tagore', region: 'north', lat: 1.385, lon: 103.83 },
+  '79': { area: 'Seletar / Fernvale', region: 'north', lat: 1.392, lon: 103.876 },
+  '80': { area: 'Seletar / Yio Chu Kang', region: 'north', lat: 1.388, lon: 103.868 },
+  '81': { area: 'Changi Airport', region: 'east', lat: 1.358, lon: 103.989 },
+  '82': { area: 'Punggol', region: 'north', lat: 1.404, lon: 103.902 },
+};
+
+function findNearestRegion(lat: number, lon: number): SgRegion {
+  let closest: SgRegion = 'central';
+  let minDistance = Infinity;
+  for (const r of REGIONS) {
+    const c = REGION_COORDS[r];
+    const dist = Math.hypot(lat - c.lat, lon - c.lon);
+    if (dist < minDistance) {
+      minDistance = dist;
+      closest = r;
+    }
+  }
+  return closest;
+}
+
+function findNearestReferencePostal(lat: number, lon: number) {
+  let closest = REFERENCE_LOCATIONS[0];
+  let minDistance = Infinity;
+  for (const item of REFERENCE_LOCATIONS) {
+    const dist = Math.hypot(lat - item.lat, lon - item.lon);
+    if (dist < minDistance) {
+      minDistance = dist;
+      closest = item;
+    }
+  }
+  return closest;
+}
+
+function formatDayDate(dateStr?: string): string {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const day = Number(parts[2]);
+    if (!Number.isNaN(year) && !Number.isNaN(month) && !Number.isNaN(day)) {
+      const utcDate = new Date(Date.UTC(year, month - 1, day));
+      const weekday = utcDate.toLocaleDateString('en-SG', {
+        weekday: 'short',
+        timeZone: 'UTC',
+      });
+      const dd = String(day).padStart(2, '0');
+      const mm = String(month).padStart(2, '0');
+      return `${weekday} (${dd}/${mm})`;
+    }
+  }
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  const weekday = d.toLocaleDateString('en-SG', {
+    weekday: 'short',
+    timeZone: 'Asia/Singapore',
+  });
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${weekday} (${dd}/${mm})`;
+}
+
+function getForecastIcon(forecast?: string) {
+  const f = (forecast || '').toLowerCase();
+  if (f.includes('thunder') || f.includes('lightning')) {
+    return <CloudLightning className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" aria-hidden="true" />;
+  }
+  if (f.includes('rain') || f.includes('shower') || f.includes('drizzle')) {
+    return <CloudRain className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" aria-hidden="true" />;
+  }
+  if (f.includes('partly cloudy')) {
+    return <CloudSun className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" aria-hidden="true" />;
+  }
+  if (f.includes('cloud') || f.includes('overcast') || f.includes('hazy')) {
+    return <Cloud className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" aria-hidden="true" />;
+  }
+  return <Sun className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" aria-hidden="true" />;
+}
+
+function getHeroWeatherIcon(forecast?: string) {
+  const f = (forecast || '').toLowerCase();
+  if (f.includes('thunder') || f.includes('lightning')) {
+    return <CloudLightning className="w-5 h-5 text-amber-500 shrink-0" aria-hidden="true" />;
+  }
+  if (f.includes('rain') || f.includes('shower') || f.includes('drizzle')) {
+    return <CloudRain className="w-5 h-5 text-sky-500 shrink-0" aria-hidden="true" />;
+  }
+  if (f.includes('partly cloudy')) {
+    return <CloudSun className="w-5 h-5 text-amber-500 shrink-0" aria-hidden="true" />;
+  }
+  if (f.includes('cloud') || f.includes('overcast') || f.includes('hazy')) {
+    return <Cloud className="w-5 h-5 text-amber-500 shrink-0" aria-hidden="true" />;
+  }
+  return <Sun className="w-5 h-5 text-amber-500 shrink-0" aria-hidden="true" />;
+}
 
 function getPsiDescriptor(psi: number | undefined): { label: string; colorClass: string } {
   if (psi === undefined || Number.isNaN(psi)) {
@@ -163,6 +387,15 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [errorReason, setErrorReason] = useState<string | null>(null);
 
+  // Postal code & geolocation states
+  const [postalInput, setPostalInput] = useState<string>('');
+  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
+  const [selectedRegion, setSelectedRegion] = useState<SgRegion | null>(null);
+  const [locating, setLocating] = useState<boolean>(false);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [weatherNowOpen, setWeatherNowOpen] = useState<boolean>(false);
+
   useEffect(() => {
     let cancelled = false;
     async function loadData() {
@@ -195,6 +428,161 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  async function lookupSixDigitPostal(code: string): Promise<{
+    found: boolean;
+    address: string;
+    region: SgRegion;
+  }> {
+    try {
+      const res = await fetch(
+        `https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(
+          code
+        )}&returnGeom=Y&getAddrDetails=Y&pageNum=1`
+      );
+      if (res.ok) {
+        const json = await res.json();
+        const match =
+          json?.results?.find((r: any) => r.POSTAL === code) || json?.results?.[0];
+        if (match && match.ADDRESS) {
+          const lat = parseFloat(match.LATITUDE);
+          const lon = parseFloat(match.LONGITUDE);
+          const region =
+            !Number.isNaN(lat) && !Number.isNaN(lon)
+              ? findNearestRegion(lat, lon)
+              : SECTOR_FALLBACK[code.slice(0, 2)]?.region || 'central';
+          return {
+            found: true,
+            address: match.ADDRESS,
+            region,
+          };
+        }
+      }
+    } catch {
+      // Fall back to sector lookup if network call fails
+    }
+
+    const sector = code.slice(0, 2);
+    const sectorInfo = SECTOR_FALLBACK[sector];
+    if (sectorInfo) {
+      return {
+        found: true,
+        address: `${sectorInfo.area.toUpperCase()} SINGAPORE ${code}`,
+        region: sectorInfo.region,
+      };
+    }
+
+    return {
+      found: false,
+      address: '',
+      region: 'central',
+    };
+  }
+
+  async function resolveNearestPostalFromCoords(
+    lat: number,
+    lon: number
+  ): Promise<{ postal: string; address: string; region: SgRegion }> {
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`
+      );
+      if (res.ok) {
+        const json = await res.json();
+        const postcode = json?.address?.postcode;
+        if (postcode && /^\d{6}$/.test(postcode)) {
+          const oneMapRes = await lookupSixDigitPostal(postcode);
+          if (oneMapRes.found) {
+            return {
+              postal: postcode,
+              address: oneMapRes.address,
+              region: oneMapRes.region,
+            };
+          }
+          return {
+            postal: postcode,
+            address: (json.display_name || `SINGAPORE ${postcode}`).toUpperCase(),
+            region: findNearestRegion(lat, lon),
+          };
+        }
+      }
+    } catch {
+      // Fallback to nearest reference Singapore postal location
+    }
+
+    const nearest = findNearestReferencePostal(lat, lon);
+    return {
+      postal: nearest.postal,
+      address: nearest.address,
+      region: nearest.region,
+    };
+  }
+
+  async function defaultToNearestPostal(withUnrecognisedNotice: boolean) {
+    if (withUnrecognisedNotice) {
+      setFallbackNotice('unrecognised postal code, defaulted to postal code nearest to you');
+    } else {
+      setFallbackNotice(null);
+    }
+
+    setLocating(true);
+
+    const applyCoords = async (lat: number, lon: number) => {
+      setUserCoords({ lat, lon });
+      const resolved = await resolveNearestPostalFromCoords(lat, lon);
+      setPostalInput(resolved.postal);
+      setResolvedAddress(resolved.address);
+      setSelectedRegion(resolved.region);
+      setLocating(false);
+    };
+
+    if (userCoords) {
+      await applyCoords(userCoords.lat, userCoords.lon);
+      return;
+    }
+
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          await applyCoords(pos.coords.latitude, pos.coords.longitude);
+        },
+        async () => {
+          // If permission denied or unavailable in iframe, default to central Singapore (238823)
+          const def = REFERENCE_LOCATIONS[0];
+          setPostalInput(def.postal);
+          setResolvedAddress(def.address);
+          setSelectedRegion(def.region);
+          setLocating(false);
+        },
+        { timeout: 6000, maximumAge: 60000 }
+      );
+    } else {
+      const def = REFERENCE_LOCATIONS[0];
+      setPostalInput(def.postal);
+      setResolvedAddress(def.address);
+      setSelectedRegion(def.region);
+      setLocating(false);
+    }
+  }
+
+  async function handlePostalSubmit(e: FormEvent) {
+    e.preventDefault();
+    const trimmed = postalInput.trim();
+    if (!trimmed) return;
+
+    if (/^\d{6}$/.test(trimmed)) {
+      const res = await lookupSixDigitPostal(trimmed);
+      if (res.found) {
+        setFallbackNotice(null);
+        setResolvedAddress(res.address);
+        setSelectedRegion(res.region);
+        return;
+      }
+    }
+
+    // Any other unrecognised format or invalid 6-digit code fails gracefully
+    await defaultToNearestPostal(true);
+  }
 
   // Normalize get_sg_psi
   const psiItem = data?.get_sg_psi?.items?.[0] || data?.get_sg_psi;
@@ -233,312 +621,415 @@ export default function App() {
     : rawAsean?.countries || [];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="border-b border-slate-200 bg-white sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-12 flex items-center justify-between">
-          <span className="text-sm font-semibold tracking-tight text-slate-900 whitespace-nowrap">
-            SG &amp; ASEAN Weather
-          </span>
-          <nav className="flex items-center gap-1" role="tablist" aria-label="Main Tabs">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'Singapore'}
-              onClick={() => setActiveTab('Singapore')}
-              className={`px-4 py-1.5 text-sm font-medium rounded transition-colors whitespace-nowrap cursor-pointer ${
-                activeTab === 'Singapore'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Singapore
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'ASEAN'}
-              onClick={() => setActiveTab('ASEAN')}
-              className={`px-4 py-1.5 text-sm font-medium rounded transition-colors whitespace-nowrap cursor-pointer ${
-                activeTab === 'ASEAN'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              ASEAN
-            </button>
-          </nav>
-        </div>
-      </header>
-
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
-        {loading && (
-          <div className="py-12 text-sm text-slate-500 font-mono">
-            Loading telemetry...
+    <div className="min-h-screen bg-slate-100 text-slate-900 flex justify-center">
+      <div className="w-full max-w-md min-h-screen bg-slate-50 border-x border-slate-200 flex flex-col">
+        <header className="border-b border-slate-200 bg-white sticky top-0 z-10">
+          <div className="px-4 h-12 flex items-center justify-between">
+            <span className="text-sm font-semibold tracking-tight text-slate-900 whitespace-nowrap">
+              SG &amp; ASEAN Weather
+            </span>
+            <nav className="flex items-center gap-1" role="tablist" aria-label="Main Tabs">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'Singapore'}
+                onClick={() => setActiveTab('Singapore')}
+                className={`px-3.5 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap cursor-pointer ${
+                  activeTab === 'Singapore'
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Singapore
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'ASEAN'}
+                onClick={() => setActiveTab('ASEAN')}
+                className={`px-3.5 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap cursor-pointer ${
+                  activeTab === 'ASEAN'
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                ASEAN
+              </button>
+            </nav>
           </div>
-        )}
+        </header>
 
-        {!loading && errorReason && (
-          <div className="p-4 border border-rose-200 bg-white text-sm text-rose-700 font-mono">
-            {errorReason}
-          </div>
-        )}
+        <main className="flex-1 px-4 py-4">
+          {loading && (
+            <div className="py-12 text-xs text-slate-500 font-mono">
+              Loading telemetry...
+            </div>
+          )}
 
-        {!loading && !errorReason && activeTab === 'Singapore' && (
-          <div className="space-y-8">
-            {/* Section 1: get_sg_psi */}
-            <section aria-labelledby="heading-psi" className="bg-white border border-slate-200 p-4 sm:p-6">
-              <div className="flex flex-wrap items-baseline justify-between gap-2 pb-4 border-b border-slate-200">
-                <h2 id="heading-psi" className="text-base font-semibold text-slate-900">
-                  Pollutant Standards Index (get_sg_psi)
-                </h2>
-                {psiItem?.timestamp && (
-                  <span className="text-xs text-slate-500 font-mono">
-                    {formatTimeRange(psiItem.timestamp)}
-                  </span>
+          {!loading && errorReason && (
+            <div className="p-3 border border-rose-200 bg-white text-xs text-rose-700 font-mono">
+              {errorReason}
+            </div>
+          )}
+
+          {!loading && !errorReason && activeTab === 'Singapore' && (
+            <div className="space-y-5">
+              {/* Top Postal Code Search & One-Tap Browser Geolocation */}
+              <div>
+                <form onSubmit={handlePostalSubmit} className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search
+                      className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                      aria-hidden="true"
+                    />
+                    <input
+                      type="text"
+                      value={postalInput}
+                      onChange={(e) => setPostalInput(e.target.value)}
+                      placeholder="check PSI at your postal code"
+                      aria-label="check PSI at your postal code"
+                      className="w-full h-11 pl-10 pr-3.5 bg-white border border-slate-200 rounded-2xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-400"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => defaultToNearestPostal(false)}
+                    disabled={locating}
+                    aria-label="Use current location"
+                    title="Use current location"
+                    className="h-11 w-11 shrink-0 bg-white border border-slate-200 rounded-2xl flex items-center justify-center text-slate-700 hover:bg-slate-50 active:scale-95 transition-transform cursor-pointer disabled:opacity-50"
+                  >
+                    <Compass className={`w-5 h-5 ${locating ? 'animate-spin' : ''}`} />
+                  </button>
+                </form>
+
+                {fallbackNotice && (
+                  <p className="mt-2 text-xs text-amber-700 px-1">
+                    {fallbackNotice}
+                  </p>
                 )}
-              </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-4">
-                {REGIONS.map((region) => {
-                  const val = psi24h[region];
-                  const status = getPsiDescriptor(val);
-                  return (
-                    <div key={region} className="border border-slate-200 p-3 bg-slate-50/50">
-                      <div className="text-xs text-slate-500 capitalize">{region}</div>
-                      <div className="mt-1 text-2xl font-semibold font-mono text-slate-900">
-                        {val ?? '—'}
-                      </div>
-                      <div className={`mt-0.5 text-xs font-medium ${status.colorClass}`}>
-                        {status.label}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-500">
-                      <th className="py-2 pr-3 font-medium">Sub-Index / Pollutant</th>
-                      {REGIONS.map((r) => (
-                        <th key={r} className="py-2 px-2 font-medium capitalize text-right">
-                          {r}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-mono text-slate-800">
-                    <tr>
-                      <td className="py-2 pr-3 font-sans text-slate-600">24h PSI</td>
-                      {REGIONS.map((r) => (
-                        <td key={r} className="py-2 px-2 text-right">{psi24h[r] ?? '—'}</td>
-                      ))}
-                    </tr>
-                    <tr>
-                      <td className="py-2 pr-3 font-sans text-slate-600">24h PM2.5 (µg/m³)</td>
-                      {REGIONS.map((r) => (
-                        <td key={r} className="py-2 px-2 text-right">{pm25_24h[r] ?? '—'}</td>
-                      ))}
-                    </tr>
-                    <tr>
-                      <td className="py-2 pr-3 font-sans text-slate-600">24h PM10 (µg/m³)</td>
-                      {REGIONS.map((r) => (
-                        <td key={r} className="py-2 px-2 text-right">{pm10_24h[r] ?? '—'}</td>
-                      ))}
-                    </tr>
-                    <tr>
-                      <td className="py-2 pr-3 font-sans text-slate-600">O₃ Sub-Index</td>
-                      {REGIONS.map((r) => (
-                        <td key={r} className="py-2 px-2 text-right">{o3Sub[r] ?? '—'}</td>
-                      ))}
-                    </tr>
-                    <tr>
-                      <td className="py-2 pr-3 font-sans text-slate-600">CO Sub-Index</td>
-                      {REGIONS.map((r) => (
-                        <td key={r} className="py-2 px-2 text-right">{coSub[r] ?? '—'}</td>
-                      ))}
-                    </tr>
-                    <tr>
-                      <td className="py-2 pr-3 font-sans text-slate-600">SO₂ Sub-Index</td>
-                      {REGIONS.map((r) => (
-                        <td key={r} className="py-2 px-2 text-right">{so2Sub[r] ?? '—'}</td>
-                      ))}
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            {/* Section 2: get_sg_weather_now */}
-            <section aria-labelledby="heading-now" className="bg-white border border-slate-200 p-4 sm:p-6">
-              <div className="flex flex-wrap items-baseline justify-between gap-2 pb-4 border-b border-slate-200">
-                <h2 id="heading-now" className="text-base font-semibold text-slate-900">
-                  2-Hour Area Weather Now (get_sg_weather_now)
-                </h2>
-                {nowPeriod && (
-                  <span className="text-xs text-slate-500 font-mono">{nowPeriod}</span>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-2 pt-4 text-xs">
-                {areaForecasts.map((item, idx) => {
-                  const areaName = item.area || item.name || `Area ${idx + 1}`;
-                  return (
-                    <div
-                      key={`${areaName}-${idx}`}
-                      className="flex items-baseline justify-between py-1.5 border-b border-slate-100 gap-2"
-                    >
-                      <span className="font-medium text-slate-800 truncate">{areaName}</span>
-                      <span className="text-slate-600 text-right shrink-0">{item.forecast}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            {/* Section 3: get_sg_forecast */}
-            <section aria-labelledby="heading-forecast" className="bg-white border border-slate-200 p-4 sm:p-6">
-              <div className="flex flex-wrap items-baseline justify-between gap-2 pb-4 border-b border-slate-200">
-                <h2 id="heading-forecast" className="text-base font-semibold text-slate-900">
-                  Singapore Weather Forecast (get_sg_forecast)
-                </h2>
-                {forecast24hItem?.valid_period && (
-                  <span className="text-xs text-slate-500 font-mono">
-                    {formatTimeRange(
-                      forecast24hItem.valid_period.start,
-                      forecast24hItem.valid_period.end
+                {resolvedAddress && (
+                  <div className="mt-2 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 flex items-baseline justify-between gap-2">
+                    <span className="font-medium text-slate-900">{resolvedAddress}</span>
+                    {selectedRegion && (
+                      <span className="font-mono text-slate-500 capitalize shrink-0">
+                        {selectedRegion} · PSI {psi24h[selectedRegion] ?? '—'}
+                      </span>
                     )}
-                  </span>
+                  </div>
                 )}
               </div>
 
-              {general24h && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4">
-                  <div className="border border-slate-200 p-3 bg-slate-50/50">
-                    <div className="text-xs text-slate-500">24h Outlook</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-900">
-                      {general24h.forecast || '—'}
-                    </div>
-                  </div>
-                  <div className="border border-slate-200 p-3 bg-slate-50/50">
-                    <div className="text-xs text-slate-500">Temperature</div>
-                    <div className="mt-1 text-sm font-semibold font-mono text-slate-900">
-                      {general24h.temperature?.low ?? '—'}°C – {general24h.temperature?.high ?? '—'}°C
-                    </div>
-                  </div>
-                  <div className="border border-slate-200 p-3 bg-slate-50/50">
-                    <div className="text-xs text-slate-500">Relative Humidity</div>
-                    <div className="mt-1 text-sm font-semibold font-mono text-slate-900">
-                      {general24h.relative_humidity?.low ?? '—'}% – {general24h.relative_humidity?.high ?? '—'}%
-                    </div>
-                  </div>
-                  <div className="border border-slate-200 p-3 bg-slate-50/50">
-                    <div className="text-xs text-slate-500">Wind</div>
-                    <div className="mt-1 text-sm font-semibold font-mono text-slate-900">
-                      {general24h.wind?.direction || ''} {general24h.wind?.speed?.low ?? '—'}–
-                      {general24h.wind?.speed?.high ?? '—'} km/h
-                    </div>
-                  </div>
+              {/* Section 1: get_sg_psi */}
+              <section aria-labelledby="heading-psi" className="bg-white border border-slate-200 p-4 rounded-xl">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 pb-3 border-b border-slate-200">
+                  <h2 id="heading-psi" className="text-sm font-semibold text-slate-900">
+                    PSI
+                  </h2>
+                  {psiItem?.timestamp && (
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      Last updated {formatTimeRange(psiItem.timestamp)}
+                    </span>
+                  )}
                 </div>
-              )}
 
-              {periods24h.length > 0 && (
+                <div className="grid grid-cols-2 gap-2.5 pt-3">
+                  {REGIONS.map((region) => {
+                    const val = psi24h[region];
+                    const status = getPsiDescriptor(val);
+                    const isHighlighted = selectedRegion === region;
+                    return (
+                      <div
+                        key={region}
+                        className={`border p-2.5 rounded-lg ${
+                          isHighlighted
+                            ? 'border-slate-900 bg-slate-900/5'
+                            : 'border-slate-200 bg-slate-50/50'
+                        }`}
+                      >
+                        <div className="text-xs text-slate-500 capitalize">{region}</div>
+                        <div className="mt-0.5 text-xl font-semibold font-mono text-slate-900">
+                          {val ?? '—'}
+                        </div>
+                        <div className={`text-[11px] font-medium ${status.colorClass}`}>
+                          {status.label}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
                 <div className="mt-4 overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs">
+                  <table className="w-full text-left border-collapse text-[11px]">
                     <thead>
                       <tr className="border-b border-slate-200 text-slate-500">
-                        <th className="py-2 pr-3 font-medium">Period</th>
-                        <th className="py-2 px-2 font-medium">Central</th>
-                        <th className="py-2 px-2 font-medium">North</th>
-                        <th className="py-2 px-2 font-medium">South</th>
-                        <th className="py-2 px-2 font-medium">East</th>
-                        <th className="py-2 px-2 font-medium">West</th>
+                        <th className="py-1.5 pr-2 font-medium">PSI Sub-Index</th>
+                        {REGIONS.map((r) => (
+                          <th key={r} className="py-1.5 px-1 font-medium capitalize text-right">
+                            {r}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 text-slate-800">
-                      {periods24h.map((period, idx) => (
-                        <tr key={idx}>
-                          <td className="py-2 pr-3 font-mono text-slate-600 whitespace-nowrap">
-                            {formatTimeRange(period.time?.start, period.time?.end)}
-                          </td>
-                          <td className="py-2 px-2">{period.regions?.central || '—'}</td>
-                          <td className="py-2 px-2">{period.regions?.north || '—'}</td>
-                          <td className="py-2 px-2">{period.regions?.south || '—'}</td>
-                          <td className="py-2 px-2">{period.regions?.east || '—'}</td>
-                          <td className="py-2 px-2">{period.regions?.west || '—'}</td>
-                        </tr>
-                      ))}
+                    <tbody className="divide-y divide-slate-100 font-mono text-slate-800">
+                      <tr>
+                        <td className="py-1.5 pr-2 font-sans text-slate-600">24h PSI</td>
+                        {REGIONS.map((r) => (
+                          <td key={r} className="py-1.5 px-1 text-right">{psi24h[r] ?? '—'}</td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="py-1.5 pr-2 font-sans text-slate-600">24h PM2.5 (µg/m³)</td>
+                        {REGIONS.map((r) => (
+                          <td key={r} className="py-1.5 px-1 text-right">{pm25_24h[r] ?? '—'}</td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="py-1.5 pr-2 font-sans text-slate-600">24h PM10 (µg/m³)</td>
+                        {REGIONS.map((r) => (
+                          <td key={r} className="py-1.5 px-1 text-right">{pm10_24h[r] ?? '—'}</td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="py-1.5 pr-2 font-sans text-slate-600">O₃ Sub-Index</td>
+                        {REGIONS.map((r) => (
+                          <td key={r} className="py-1.5 px-1 text-right">{o3Sub[r] ?? '—'}</td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="py-1.5 pr-2 font-sans text-slate-600">CO Sub-Index</td>
+                        {REGIONS.map((r) => (
+                          <td key={r} className="py-1.5 px-1 text-right">{coSub[r] ?? '—'}</td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="py-1.5 pr-2 font-sans text-slate-600">SO₂ Sub-Index</td>
+                        {REGIONS.map((r) => (
+                          <td key={r} className="py-1.5 px-1 text-right">{so2Sub[r] ?? '—'}</td>
+                        ))}
+                      </tr>
                     </tbody>
                   </table>
                 </div>
-              )}
+              </section>
 
-              {days4d.length > 0 && (
-                <div className="mt-6 pt-4 border-t border-slate-200">
-                  <h3 className="text-xs font-semibold text-slate-700 mb-3">4-Day Outlook</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-                    {days4d.map((day, idx) => (
-                      <div key={idx} className="border border-slate-200 p-3">
-                        <div className="font-mono font-semibold text-slate-900">{day.date}</div>
-                        <div className="mt-1 text-slate-700">{day.forecast}</div>
-                        <div className="mt-2 font-mono text-slate-500">
-                          {day.temperature?.low}–{day.temperature?.high}°C · RH{' '}
-                          {day.relative_humidity?.low}–{day.relative_humidity?.high}% ·{' '}
-                          {day.wind?.direction} {day.wind?.speed?.low}–{day.wind?.speed?.high} km/h
-                        </div>
+              {/* Section 2: Weather forecast for Singapore */}
+              <section aria-labelledby="heading-forecast" className="bg-white border border-slate-200 p-5 rounded-2xl">
+                <div className="flex flex-col gap-1 pb-3 border-b border-slate-100">
+                  <h2 id="heading-forecast" className="text-sm font-semibold text-slate-900">
+                    Weather forecast for Singapore
+                  </h2>
+                  {forecast24hItem?.valid_period && (
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      Last updated{' '}
+                      {formatTimeRange(
+                        forecast24hItem.valid_period.start,
+                        forecast24hItem.valid_period.end
+                      )}
+                    </span>
+                  )}
+                </div>
+
+                {/* Top Weather Card Layout matching screenshot */}
+                <div className="pt-4">
+                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
+                    <span>Singapore, Singapore</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="font-mono text-[11px]">1.2897°, 103.8501°</span>
+                  </div>
+
+                  <div className="mt-1.5 text-3xl font-serif-display font-semibold tracking-tight text-slate-900">
+                    Singapore
+                  </div>
+
+                  <div className="mt-2 flex items-end justify-between gap-3">
+                    <div className="text-6xl font-mono font-bold tracking-tight text-slate-900 leading-none">
+                      {rawForecast?.current_metrics?.temperature ??
+                        (general24h?.temperature?.low && general24h?.temperature?.high
+                          ? Math.round((general24h.temperature.low + general24h.temperature.high) / 2)
+                          : 28)}
+                      °C
+                    </div>
+
+                    <div className="text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {getHeroWeatherIcon(general24h?.forecast)}
+                        <span className="text-sm font-semibold text-slate-800">
+                          {(general24h?.forecast || 'Partly Cloudy').replace(/\s*\([^)]*\)/g, '')}
+                        </span>
                       </div>
-                    ))}
+                      <div className="mt-1 font-mono text-xs whitespace-nowrap">
+                        <span className="text-[11px] font-sans font-medium text-slate-400 mr-1.5">
+                          Low / High
+                        </span>
+                        <span className="text-slate-400">
+                          {general24h?.temperature?.low ?? 25}°
+                        </span>
+                        <span className="text-slate-300 mx-1">/</span>
+                        <span className="font-semibold text-slate-900">
+                          {general24h?.temperature?.high ?? 34}°
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-2 gap-3">
+                    <div className="bg-slate-50/70 rounded-2xl p-3.5">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                        <Droplets className="w-3.5 h-3.5 text-sky-500 shrink-0" aria-hidden="true" />
+                        <span>Humidity</span>
+                      </div>
+                      <div className="mt-1.5 text-lg font-mono font-bold text-slate-900">
+                        {rawForecast?.current_metrics?.humidity ??
+                          (general24h?.relative_humidity?.low && general24h?.relative_humidity?.high
+                            ? `${general24h.relative_humidity.low}–${general24h.relative_humidity.high}`
+                            : 81)}
+                        %
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50/70 rounded-2xl p-3.5">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                        <Wind className="w-3.5 h-3.5 text-slate-500 shrink-0" aria-hidden="true" />
+                        <span>Wind Speed</span>
+                      </div>
+                      <div className="mt-1.5 text-lg font-mono font-bold text-slate-900">
+                        {rawForecast?.current_metrics?.wind_speed ??
+                          (general24h?.wind?.speed?.low && general24h?.wind?.speed?.high
+                            ? `${general24h.wind.speed.low}–${general24h.wind.speed.high}`
+                            : 6)}{' '}
+                        km/h
+                      </div>
+                    </div>
                   </div>
                 </div>
-              )}
-            </section>
-          </div>
-        )}
 
-        {!loading && !errorReason && activeTab === 'ASEAN' && (
-          <section aria-labelledby="heading-asean" className="bg-white border border-slate-200 p-4 sm:p-6">
-            <div className="pb-4 border-b border-slate-200">
-              <h2 id="heading-asean" className="text-base font-semibold text-slate-900">
-                ASEAN Member States Climate Information
-              </h2>
-            </div>
-
-            <div className="divide-y divide-slate-200">
-              {aseanCountries.map((c, idx) => (
-                <div key={c.country_code || c.country || `asean-${idx}`} className="py-4 grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
-                  <div className="md:col-span-3">
-                    <div className="text-sm font-semibold text-slate-900">
-                      {c.country} <span className="font-mono text-xs text-slate-500">({c.country_code})</span>
+                {days4d.length > 0 && (
+                  <div className="mt-5 pt-4 border-t border-slate-200">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-xs font-semibold text-slate-900">4-Day Forecast</h3>
+                      <span className="text-[11px] font-medium text-slate-400">Low / High</span>
                     </div>
-                    {c.capital && (
-                      <div className="text-slate-500 mt-0.5">Capital: {c.capital}</div>
+                    <div className="divide-y divide-slate-100 text-xs">
+                      {days4d.map((day, idx) => (
+                        <div key={idx} className="py-3 flex items-start justify-between gap-2">
+                          <div className="w-24 shrink-0 font-medium text-slate-700 pt-0.5">
+                            {formatDayDate(day.date)}
+                          </div>
+                          <div className="flex-1 min-w-0 flex items-start gap-2">
+                            {getForecastIcon(day.forecast)}
+                            <div className="min-w-0">
+                              <div className="text-slate-600 leading-snug">{day.forecast}</div>
+                              <div className="mt-0.5 font-mono text-[10px] text-slate-400">
+                                RH {day.relative_humidity?.low}–{day.relative_humidity?.high}% ·{' '}
+                                {day.wind?.direction} {day.wind?.speed?.low}–{day.wind?.speed?.high} km/h
+                              </div>
+                            </div>
+                          </div>
+                          <div className="shrink-0 font-mono text-xs pt-0.5 whitespace-nowrap text-right">
+                            <span className="text-slate-400">{day.temperature?.low}°</span>
+                            <span className="text-slate-300 mx-1">/</span>
+                            <span className="font-semibold text-slate-900">{day.temperature?.high}°</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              {/* Section 3: Weather now (2 hourly) by area (Accordion collapsed by default) */}
+              <section aria-labelledby="heading-now" className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setWeatherNowOpen((prev) => !prev)}
+                  aria-expanded={weatherNowOpen}
+                  className="w-full p-4 flex items-center justify-between gap-3 text-left hover:bg-slate-50/60 transition-colors cursor-pointer"
+                >
+                  <div className="flex flex-col gap-1">
+                    <h2 id="heading-now" className="text-sm font-semibold text-slate-900">
+                      Weather now (2 hourly) by area
+                    </h2>
+                    {nowPeriod && (
+                      <span className="text-[11px] text-slate-500 font-mono">
+                        Last updated {nowPeriod}
+                      </span>
                     )}
                   </div>
-                  <div className="md:col-span-9 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <ChevronDown
+                    className={`w-4 h-4 text-slate-500 shrink-0 transition-transform duration-150 ${
+                      weatherNowOpen ? 'rotate-180' : ''
+                    }`}
+                    aria-hidden="true"
+                  />
+                </button>
+
+                {weatherNowOpen && (
+                  <div className="px-4 pb-4 pt-1 border-t border-slate-200 divide-y divide-slate-100 text-xs">
+                    {areaForecasts.map((item, idx) => {
+                      const areaName = item.area || item.name || `Area ${idx + 1}`;
+                      return (
+                        <div
+                          key={`${areaName}-${idx}`}
+                          className="flex items-baseline justify-between py-2 gap-2"
+                        >
+                          <span className="font-medium text-slate-800">{areaName}</span>
+                          <span className="text-slate-600 text-right shrink-0">{item.forecast}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+
+          {!loading && !errorReason && activeTab === 'ASEAN' && (
+            <section aria-labelledby="heading-asean" className="bg-white border border-slate-200 p-4 rounded-xl">
+              <div className="pb-3 border-b border-slate-200">
+                <h2 id="heading-asean" className="text-sm font-semibold text-slate-900">
+                  ASEAN Member States Climate Information
+                </h2>
+              </div>
+
+              <div className="divide-y divide-slate-200">
+                {aseanCountries.map((c, idx) => (
+                  <div key={c.country_code || c.country || `asean-${idx}`} className="py-3.5 space-y-2 text-xs">
                     <div>
-                      <span className="text-slate-500 block">Average Temperatures</span>
-                      <span className="font-mono text-slate-900">{c.average_temperature}</span>
+                      <div className="text-sm font-semibold text-slate-900">
+                        {c.country} <span className="font-mono text-xs text-slate-500">({c.country_code})</span>
+                      </div>
+                      {c.capital && (
+                        <div className="text-slate-500 mt-0.5">Capital: {c.capital}</div>
+                      )}
                     </div>
-                    <div>
-                      <span className="text-slate-500 block">Annual Rainfall</span>
-                      <span className="font-mono text-slate-900">{c.annual_rainfall}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block">Monsoon Seasons</span>
-                      <span className="text-slate-800">{c.monsoon_seasons}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block">Natural Hazards</span>
-                      <span className="text-slate-800">{c.natural_hazards}</span>
+                    <div className="grid grid-cols-1 gap-2">
+                      <div>
+                        <span className="text-slate-500 block">Average Temperatures</span>
+                        <span className="font-mono text-slate-900">{c.average_temperature}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block">Annual Rainfall</span>
+                        <span className="font-mono text-slate-900">{c.annual_rainfall}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block">Monsoon Seasons</span>
+                        <span className="text-slate-800">{c.monsoon_seasons}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block">Natural Hazards</span>
+                        <span className="text-slate-800">{c.natural_hazards}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-      </main>
+                ))}
+              </div>
+            </section>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

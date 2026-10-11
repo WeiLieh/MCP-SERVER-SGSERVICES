@@ -265,6 +265,40 @@ async function executeTool(toolName, args, key) {
   return fetchDirectFallback(toolName, args);
 }
 
+async function fetchCurrentTelemetry() {
+  try {
+    const [openMeteoRes, uvRes] = await Promise.all([
+      fetch(
+        'https://api.open-meteo.com/v1/forecast?latitude=1.2897&longitude=103.8501&current=temperature_2m,relative_humidity_2m,apparent_temperature,surface_pressure,wind_speed_10m,uv_index&timezone=Asia%2FSingapore'
+      ),
+      fetch('https://api.data.gov.sg/v1/environment/uv-index'),
+    ]);
+
+    let current = {};
+    if (openMeteoRes.ok) {
+      const omData = await openMeteoRes.json();
+      current = omData?.current || {};
+    }
+
+    let neaUv = null;
+    if (uvRes.ok) {
+      const uvData = await uvRes.json();
+      neaUv = uvData?.items?.[0]?.index?.[0]?.value ?? null;
+    }
+
+    return {
+      temperature: typeof current.temperature_2m === 'number' ? Math.round(current.temperature_2m) : null,
+      feels_like: typeof current.apparent_temperature === 'number' ? Math.round(current.apparent_temperature) : null,
+      humidity: typeof current.relative_humidity_2m === 'number' ? Math.round(current.relative_humidity_2m) : null,
+      wind_speed: typeof current.wind_speed_10m === 'number' ? Math.round(current.wind_speed_10m) : null,
+      uv_index: neaUv !== null ? neaUv : (typeof current.uv_index === 'number' ? Math.round(current.uv_index) : 0),
+      pressure: typeof current.surface_pressure === 'number' ? Math.round(current.surface_pressure) : 1009,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default async function handler(req, res) {
   try {
     const key = getApiKey();
@@ -294,12 +328,13 @@ export default async function handler(req, res) {
       return res.status(200).json(result.data);
     }
 
-    const [psiRes, nowRes, forecast24Res, forecast4dRes, aseanRes] = await Promise.all([
+    const [psiRes, nowRes, forecast24Res, forecast4dRes, aseanRes, currentMetrics] = await Promise.all([
       executeTool('get_sg_psi', {}, key),
       executeTool('get_sg_weather_now', {}, key),
       executeTool('get_sg_forecast', { forecast_type: '24h' }, key),
       executeTool('get_sg_forecast', { forecast_type: '4day' }, key),
       executeTool('get_asean_climate', {}, key),
+      fetchCurrentTelemetry(),
     ]);
 
     if (!psiRes.ok) {
@@ -318,6 +353,7 @@ export default async function handler(req, res) {
       get_sg_forecast: {
         forecast_24h: forecast24Res.data,
         forecast_4day: forecast4dRes.ok ? forecast4dRes.data : null,
+        current_metrics: currentMetrics,
       },
       get_asean_climate: aseanRes.ok ? aseanRes.data : { countries: ASEAN_FALLBACK },
     });

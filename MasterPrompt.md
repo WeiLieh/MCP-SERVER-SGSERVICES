@@ -30,6 +30,7 @@ GUARDRAILS:
 
 CONTEXT: 
 11.Deployed on Vercel from GitHub.  The key lives only in environment variables
-12. Create a context.md file in the project root. Whenever new context is provided, automatically write it into context.md.
+12. Create a context.md file in the project root. Whenever new context is provided, automatically write it into context.md. For every new line chunk of context added into context.md, prefix it with the date added.
 13. Create an error_log.txt file in the project root. Whenever there are any errors, automatically write them into error_log.txt.
+
 
