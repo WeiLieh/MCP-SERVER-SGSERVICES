@@ -1,4 +1,38 @@
-const MCP_URL = 'https://server.smithery.ai/vdineshk/sg-weather-data-mcp';
+const BASE_MCP_URL = 'https://server.smithery.ai/vdineshk/sg-weather-data-mcp';
+
+const IGNORED_ENV_KEYS = new Set([
+  'GEMINI_API_KEY',
+  'APP_URL',
+  'PORT',
+  'NODE_ENV',
+  'PATH',
+  'HOME',
+  'PWD',
+]);
+
+function getApiKey() {
+  const explicit =
+    process.env.SMITHERY_API_KEY ||
+    process.env.SMITHERY_KEY ||
+    process.env.MCP_API_KEY ||
+    process.env.MCP_KEY ||
+    process.env.API_KEY ||
+    process.env.BEARER_TOKEN ||
+    process.env.MCP_SERVER_KEY;
+
+  if (explicit) return explicit.trim();
+
+  for (const [k, v] of Object.entries(process.env)) {
+    if (!v || IGNORED_ENV_KEYS.has(k) || k.startsWith('VITE_') || k.startsWith('VERCEL') || k.startsWith('npm_')) {
+      continue;
+    }
+    const upper = k.toUpperCase();
+    if (upper.includes('SMITHERY') || upper.includes('MCP') || upper.endsWith('_API_KEY') || upper.endsWith('_TOKEN')) {
+      return v.trim();
+    }
+  }
+  return '';
+}
 
 const ASEAN_FALLBACK = [
   {
@@ -93,17 +127,6 @@ const ASEAN_FALLBACK = [
   },
 ];
 
-function getApiKey() {
-  return (
-    process.env.SMITHERY_API_KEY ||
-    process.env.MCP_API_KEY ||
-    process.env.API_KEY ||
-    process.env.SMITHERY_KEY ||
-    process.env.BEARER_TOKEN ||
-    ''
-  );
-}
-
 function parseSseOrJson(rawText) {
   const trimmed = rawText.trim();
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
@@ -145,11 +168,15 @@ async function callMcpTool(toolName, args, key) {
     'Content-Type': 'application/json',
     'Accept': 'application/json, text/event-stream',
   };
+  let targetUrl = BASE_MCP_URL;
   if (key) {
     headers['Authorization'] = `Bearer ${key}`;
+    const urlObj = new URL(BASE_MCP_URL);
+    urlObj.searchParams.set('api_key', key);
+    targetUrl = urlObj.toString();
   }
 
-  const response = await fetch(MCP_URL, {
+  const response = await fetch(targetUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify({
