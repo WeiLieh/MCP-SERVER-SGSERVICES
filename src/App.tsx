@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import {
+  AlertTriangle,
   CheckCircle2,
   ChevronDown,
   Clock,
@@ -9,7 +10,6 @@ import {
   CloudSun,
   Compass,
   Droplets,
-  MapPin,
   RefreshCw,
   Search,
   Server,
@@ -56,6 +56,7 @@ interface PsiData {
     };
   }>;
   regions?: Record<string, any>;
+  region_metadata?: Array<{ name?: string; label_location?: { latitude?: number; longitude?: number } }>;
 }
 
 interface WeatherNowArea {
@@ -120,50 +121,61 @@ interface ForecastPayload {
     }>;
     forecasts?: Forecast4DayItem[];
   };
-  current_metrics?: {
-    temperature?: number | null;
-    feels_like?: number | null;
-    humidity?: number | null;
-    wind_speed?: number | null;
-    uv_index?: number | null;
-    pressure?: number | null;
-  } | null;
   items?: any[];
 }
 
 interface AseanCountryClimate {
-  country_code: string;
-  country: string;
+  country_code?: string;
+  code?: string;
+  country?: string;
+  name?: string;
   capital?: string;
-  average_temperature: string;
-  annual_rainfall: string;
-  monsoon_seasons: string;
-  natural_hazards: string;
+  average_temperature?: unknown;
+  annual_rainfall?: unknown;
+  monsoon_seasons?: unknown;
+  natural_hazards?: unknown;
+}
+
+interface ToolResult<T> {
+  ok: boolean;
+  status: number;
+  reason?: string;
+  data?: T;
+}
+
+interface McpFailure {
+  tool: string;
+  section: string;
+  status: number;
+  reason: string;
 }
 
 interface BusResponse {
-  get_sg_psi?: PsiData;
-  get_sg_weather_now?: WeatherNowData;
-  get_sg_forecast?: ForecastPayload;
-  get_asean_climate?: {
-    countries?: AseanCountryClimate[];
-  } | AseanCountryClimate[];
-  status?: number;
-  reason?: string;
+  ok: boolean;
+  failures: McpFailure[];
+  get_sg_psi: ToolResult<PsiData>;
+  get_sg_weather_now: ToolResult<WeatherNowData>;
+  get_sg_forecast_24h: ToolResult<ForecastPayload['forecast_24h'] & { items?: any[] }>;
+  get_sg_forecast_4day: ToolResult<ForecastPayload['forecast_4day']>;
+  get_asean_climate: ToolResult<unknown>;
 }
 
 interface HealthStatus {
   answered: boolean;
   ok: boolean;
-  status: number;
+  status: number | null;
   latencyMs: number;
   checkedAt: string;
+  server?: string;
+  tools: string[];
   reason?: string;
 }
 
 const REGIONS = ['central', 'north', 'south', 'east', 'west'] as const;
 type SgRegion = (typeof REGIONS)[number];
 
+// Used only to map a postal code / GPS position to the nearest PSI region when the
+// MCP PSI response does not include region_metadata coordinates.
 const REGION_COORDS: Record<SgRegion, { lat: number; lon: number }> = {
   central: { lat: 1.35735, lon: 103.82 },
   east: { lat: 1.35735, lon: 103.94 },
@@ -172,132 +184,19 @@ const REGION_COORDS: Record<SgRegion, { lat: number; lon: number }> = {
   west: { lat: 1.35735, lon: 103.7 },
 };
 
-const REFERENCE_LOCATIONS: Array<{
-  postal: string;
-  address: string;
-  lat: number;
-  lon: number;
-  region: SgRegion;
-}> = [
-  { postal: '238823', address: 'ORCHARD ROAD ISTANA SINGAPORE 238823', lat: 1.3071, lon: 103.8425, region: 'central' },
-  { postal: '048619', address: '8 MARINA BOULEVARD MARINA BAY FINANCIAL CENTRE SINGAPORE 048619', lat: 1.2795, lon: 103.8543, region: 'south' },
-  { postal: '098585', address: '8 SENTOSA GATEWAY RESORTS WORLD SENTOSA SINGAPORE 098585', lat: 1.2568, lon: 103.8203, region: 'south' },
-  { postal: '310190', address: '190 TOA PAYOH CENTRAL HDB HUB SINGAPORE 310190', lat: 1.3326, lon: 103.8482, region: 'central' },
-  { postal: '529509', address: '10 TAMPINES CENTRAL 1 TAMPINES 1 SINGAPORE 529509', lat: 1.3541, lon: 103.9451, region: 'east' },
-  { postal: '819663', address: '78 AIRPORT BOULEVARD JEWEL CHANGI AIRPORT SINGAPORE 819663', lat: 1.3602, lon: 103.9898, region: 'east' },
-  { postal: '738099', address: '1 WOODLANDS SQUARE CAUSEWAY POINT SINGAPORE 738099', lat: 1.436, lon: 103.786, region: 'north' },
-  { postal: '769098', address: '930 YISHUN AVENUE 2 NORTHPOINT CITY SINGAPORE 769098', lat: 1.4294, lon: 103.8358, region: 'north' },
-  { postal: '569933', address: '53 ANG MO KIO AVENUE 3 AMK HUB SINGAPORE 569933', lat: 1.3691, lon: 103.8485, region: 'central' },
-  { postal: '608532', address: '50 JURONG GATEWAY ROAD JEM SINGAPORE 608532', lat: 1.3331, lon: 103.7436, region: 'west' },
-  { postal: '648886', address: '1 JURONG WEST CENTRAL 2 JURONG POINT SINGAPORE 648886', lat: 1.3396, lon: 103.7067, region: 'west' },
-];
-
-const SECTOR_FALLBACK: Record<string, { area: string; region: SgRegion; lat: number; lon: number }> = {
-  '01': { area: 'Raffles Place / Marina', region: 'south', lat: 1.281, lon: 103.851 },
-  '02': { area: 'Anson / Tanjong Pagar', region: 'south', lat: 1.275, lon: 103.845 },
-  '03': { area: 'Queenstown / Tiong Bahru', region: 'south', lat: 1.286, lon: 103.827 },
-  '04': { area: 'Telok Blangah / Harbourfront', region: 'south', lat: 1.266, lon: 103.821 },
-  '05': { area: 'Pasir Panjang / Clementi', region: 'west', lat: 1.285, lon: 103.776 },
-  '06': { area: 'High Street / Beach Road', region: 'central', lat: 1.292, lon: 103.85 },
-  '07': { area: 'Middle Road / Golden Mile', region: 'central', lat: 1.3, lon: 103.858 },
-  '08': { area: 'Little India / Farrer Park', region: 'central', lat: 1.309, lon: 103.854 },
-  '09': { area: 'Harbourfront / Sentosa', region: 'south', lat: 1.265, lon: 103.82 },
-  '10': { area: 'Bukit Timah / Holland', region: 'central', lat: 1.312, lon: 103.8 },
-  '11': { area: 'Novena / Thomson', region: 'central', lat: 1.325, lon: 103.825 },
-  '12': { area: 'Clementi / West Coast', region: 'west', lat: 1.315, lon: 103.765 },
-  '13': { area: 'Macpherson / Braddell', region: 'central', lat: 1.33, lon: 103.87 },
-  '14': { area: 'Geylang / Eunos', region: 'east', lat: 1.318, lon: 103.893 },
-  '15': { area: 'Katong / Joo Chiat', region: 'east', lat: 1.305, lon: 103.905 },
-  '16': { area: 'Bedok / Upper East Coast', region: 'east', lat: 1.315, lon: 103.94 },
-  '17': { area: 'Loyang / Changi', region: 'east', lat: 1.37, lon: 103.97 },
-  '18': { area: 'Tampines / Pasir Ris', region: 'east', lat: 1.355, lon: 103.945 },
-  '19': { area: 'Serangoon Garden / Hougang / Punggol', region: 'north', lat: 1.375, lon: 103.895 },
-  '20': { area: 'Bishan / Ang Mo Kio', region: 'central', lat: 1.355, lon: 103.845 },
-  '21': { area: 'Upper Bukit Timah / Clementi Park', region: 'west', lat: 1.338, lon: 103.775 },
-  '22': { area: 'Jurong / Boon Lay', region: 'west', lat: 1.335, lon: 103.72 },
-  '23': { area: 'Orchard / Cairnhill / River Valley', region: 'central', lat: 1.304, lon: 103.835 },
-  '24': { area: 'Tanglin / River Valley', region: 'central', lat: 1.298, lon: 103.825 },
-  '25': { area: 'Ardmore / Bukit Timah', region: 'central', lat: 1.315, lon: 103.82 },
-  '26': { area: 'Bukit Timah / Holland', region: 'central', lat: 1.325, lon: 103.795 },
-  '27': { area: 'Holland / Ghim Moh', region: 'west', lat: 1.312, lon: 103.788 },
-  '28': { area: 'Seletar / Yio Chu Kang', region: 'north', lat: 1.39, lon: 103.87 },
-  '29': { area: 'Thomson / Mount Pleasant', region: 'central', lat: 1.335, lon: 103.835 },
-  '30': { area: 'Novena / Thomson', region: 'central', lat: 1.32, lon: 103.842 },
-  '31': { area: 'Toa Payoh / Balestier', region: 'central', lat: 1.333, lon: 103.848 },
-  '32': { area: 'Balestier / Whampoa', region: 'central', lat: 1.325, lon: 103.855 },
-  '33': { area: 'Bendemeer / Kallang', region: 'central', lat: 1.32, lon: 103.865 },
-  '34': { area: 'Potong Pasir / Macpherson', region: 'central', lat: 1.332, lon: 103.868 },
-  '35': { area: 'Woodleigh / Bidadari', region: 'central', lat: 1.339, lon: 103.872 },
-  '36': { area: 'Macpherson / Tai Seng', region: 'central', lat: 1.335, lon: 103.885 },
-  '37': { area: 'Circuit Road / Pipit Road', region: 'central', lat: 1.327, lon: 103.886 },
-  '38': { area: 'Geylang / Aljunied', region: 'central', lat: 1.315, lon: 103.882 },
-  '39': { area: 'Mountbatten / Dakota', region: 'central', lat: 1.308, lon: 103.885 },
-  '40': { area: 'Paya Lebar / Eunos', region: 'east', lat: 1.32, lon: 103.898 },
-  '41': { area: 'Eunos / Kembangan', region: 'east', lat: 1.324, lon: 103.912 },
-  '42': { area: 'Joo Chiat / Marine Parade', region: 'east', lat: 1.31, lon: 103.906 },
-  '43': { area: 'Tanjong Katong / Mountbatten', region: 'east', lat: 1.302, lon: 103.895 },
-  '44': { area: 'Marine Parade / Siglap', region: 'east', lat: 1.305, lon: 103.92 },
-  '45': { area: 'Siglap / Frankel', region: 'east', lat: 1.312, lon: 103.925 },
-  '46': { area: 'Bedok / Chai Chee', region: 'east', lat: 1.325, lon: 103.93 },
-  '47': { area: 'Bedok Reservoir / Kaki Bukit', region: 'east', lat: 1.336, lon: 103.922 },
-  '48': { area: 'Simei / Expo / Changi Business Park', region: 'east', lat: 1.342, lon: 103.955 },
-  '49': { area: 'Changi Village / Loyang', region: 'east', lat: 1.385, lon: 103.985 },
-  '50': { area: 'Loyang / Changi', region: 'east', lat: 1.368, lon: 103.968 },
-  '51': { area: 'Pasir Ris', region: 'east', lat: 1.372, lon: 103.95 },
-  '52': { area: 'Tampines', region: 'east', lat: 1.353, lon: 103.945 },
-  '53': { area: 'Hougang / Serangoon', region: 'north', lat: 1.362, lon: 103.888 },
-  '54': { area: 'Sengkang', region: 'north', lat: 1.392, lon: 103.895 },
-  '55': { area: 'Serangoon / Lorong Chuan', region: 'central', lat: 1.354, lon: 103.868 },
-  '56': { area: 'Ang Mo Kio', region: 'central', lat: 1.37, lon: 103.845 },
-  '57': { area: 'Bishan / Sin Ming / Upper Thomson', region: 'central', lat: 1.355, lon: 103.835 },
-  '58': { area: 'Bukit Timah / Clementi Park', region: 'west', lat: 1.34, lon: 103.778 },
-  '59': { area: 'King Albert Park / Sunset Way', region: 'west', lat: 1.332, lon: 103.775 },
-  '60': { area: 'Jurong East', region: 'west', lat: 1.333, lon: 103.742 },
-  '61': { area: 'Jurong West / Taman Jurong', region: 'west', lat: 1.335, lon: 103.722 },
-  '62': { area: 'Pioneer / Tuas', region: 'west', lat: 1.32, lon: 103.68 },
-  '63': { area: 'Tuas', region: 'west', lat: 1.315, lon: 103.65 },
-  '64': { area: 'Jurong West / Boon Lay', region: 'west', lat: 1.342, lon: 103.705 },
-  '65': { area: 'Bukit Batok', region: 'west', lat: 1.352, lon: 103.752 },
-  '66': { area: 'Hillview / Dairy Farm', region: 'west', lat: 1.362, lon: 103.765 },
-  '67': { area: 'Bukit Panjang', region: 'west', lat: 1.378, lon: 103.765 },
-  '68': { area: 'Choa Chu Kang', region: 'west', lat: 1.385, lon: 103.745 },
-  '69': { area: 'Tengah / Lim Chu Kang', region: 'west', lat: 1.375, lon: 103.71 },
-  '70': { area: 'Lim Chu Kang / Sungei Gedong', region: 'west', lat: 1.41, lon: 103.7 },
-  '71': { area: 'Lim Chu Kang', region: 'north', lat: 1.425, lon: 103.715 },
-  '72': { area: 'Kranji / Mandai', region: 'north', lat: 1.42, lon: 103.755 },
-  '73': { area: 'Woodlands / Marsiling', region: 'north', lat: 1.436, lon: 103.786 },
-  '75': { area: 'Sembawang', region: 'north', lat: 1.448, lon: 103.82 },
-  '76': { area: 'Yishun', region: 'north', lat: 1.428, lon: 103.835 },
-  '77': { area: 'Upper Thomson / Springleaf', region: 'north', lat: 1.4, lon: 103.818 },
-  '78': { area: 'Lentor / Tagore', region: 'north', lat: 1.385, lon: 103.83 },
-  '79': { area: 'Seletar / Fernvale', region: 'north', lat: 1.392, lon: 103.876 },
-  '80': { area: 'Seletar / Yio Chu Kang', region: 'north', lat: 1.388, lon: 103.868 },
-  '81': { area: 'Changi Airport', region: 'east', lat: 1.358, lon: 103.989 },
-  '82': { area: 'Punggol', region: 'north', lat: 1.404, lon: 103.902 },
-};
-
-function findNearestRegion(lat: number, lon: number): SgRegion {
+function findNearestRegion(
+  lat: number,
+  lon: number,
+  coords: Record<SgRegion, { lat: number; lon: number }>
+): SgRegion {
   let closest: SgRegion = 'central';
   let minDistance = Infinity;
   for (const r of REGIONS) {
-    const c = REGION_COORDS[r];
+    const c = coords[r];
     const dist = Math.hypot(lat - c.lat, lon - c.lon);
     if (dist < minDistance) {
       minDistance = dist;
       closest = r;
-    }
-  }
-  return closest;
-}
-
-function findNearestReferencePostal(lat: number, lon: number) {
-  let closest = REFERENCE_LOCATIONS[0];
-  let minDistance = Infinity;
-  for (const item of REFERENCE_LOCATIONS) {
-    const dist = Math.hypot(lat - item.lat, lon - item.lon);
-    if (dist < minDistance) {
-      minDistance = dist;
-      closest = item;
     }
   }
   return closest;
@@ -408,7 +307,19 @@ const HAZE_PARTICLES: Array<{ left: string; top: string; size: string }> = [
 ];
 
 function getPsiSelectedCardTheme(psi: number | undefined): PsiSelectedCardTheme {
-  const val = psi ?? 0;
+  if (psi === undefined || Number.isNaN(psi)) {
+    return {
+      rangeLabel: 'No data',
+      skyDescriptor: '',
+      actionStatus: '',
+      cardGradientClass: 'bg-gradient-to-br from-slate-500 to-slate-600',
+      pillClass: 'bg-white/15 border-white/30 text-white',
+      bottomBoxClass: '',
+      showParticles: false,
+      particleOpacityClass: 'opacity-0',
+    };
+  }
+  const val = psi;
   if (val <= 50) {
     return {
       rangeLabel: 'Good',
@@ -500,6 +411,47 @@ function formatTimeRange(start?: string, end?: string): string {
   return s && e ? `${s} – ${e} SGT` : s || e;
 }
 
+function firstNumber(...values: unknown[]): number | undefined {
+  for (const v of values) {
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+  }
+  return undefined;
+}
+
+function formatRange(range?: { low?: number; high?: number }): string | undefined {
+  const low = firstNumber(range?.low);
+  const high = firstNumber(range?.high);
+  if (low !== undefined && high !== undefined) return low === high ? `${low}` : `${low}–${high}`;
+  if (low !== undefined) return `${low}`;
+  if (high !== undefined) return `${high}`;
+  return undefined;
+}
+
+function displayValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (Array.isArray(value)) return value.map(displayValue).join(', ');
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${displayValue(v)}`)
+      .join(' · ');
+  }
+  return String(value);
+}
+
+function McpError({ tool, result }: { tool: string; result?: { status?: number; reason?: string } }) {
+  return (
+    <div role="alert" className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-xs text-rose-700">
+      <div className="flex items-center gap-1.5 font-semibold">
+        <XCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+        <span>MCP call {tool} failed</span>
+      </div>
+      <div className="mt-1 font-mono break-words">
+        HTTP {result?.status ?? '—'} · {result?.reason || 'No response from /api/bus'}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'Singapore' | 'ASEAN'>('Singapore');
   const [data, setData] = useState<BusResponse | null>(null);
@@ -530,41 +482,37 @@ export default function App() {
   async function checkMcpHealth() {
     setCheckingHealth(true);
     const t0 = performance.now();
+    const checkedAt = () =>
+      new Date().toLocaleTimeString('en-SG', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Singapore',
+      });
     try {
       const res = await fetch('/api/health');
       const elapsed = Math.round(performance.now() - t0);
-      const json = await res.json().catch(() => ({}));
-      const nowTime = new Date().toLocaleTimeString('en-SG', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-        timeZone: 'Asia/Singapore',
-      });
+      const json = await res.json().catch(() => null);
       setHealthStatus({
-        answered: json.answered ?? res.status < 500,
-        ok: Boolean(json.ok),
-        status: json.status || res.status,
-        latencyMs: typeof json.latencyMs === 'number' ? json.latencyMs : elapsed,
-        checkedAt: nowTime,
-        reason: json.reason,
+        answered: Boolean(json?.answered),
+        ok: res.ok && Boolean(json?.ok),
+        status: typeof json?.status === 'number' ? json.status : res.status,
+        latencyMs: typeof json?.latencyMs === 'number' ? json.latencyMs : elapsed,
+        checkedAt: checkedAt(),
+        server: json?.server,
+        tools: Array.isArray(json?.tools) ? json.tools : [],
+        reason: json?.reason || `/api/health returned HTTP ${res.status}`,
       });
     } catch {
-      const elapsed = Math.round(performance.now() - t0);
-      const nowTime = new Date().toLocaleTimeString('en-SG', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-        timeZone: 'Asia/Singapore',
-      });
       setHealthStatus({
         answered: false,
         ok: false,
-        status: 502,
-        latencyMs: elapsed,
-        checkedAt: nowTime,
-        reason: 'Upstream MCP server unreachable',
+        status: null,
+        latencyMs: Math.round(performance.now() - t0),
+        checkedAt: checkedAt(),
+        tools: [],
+        reason: 'Could not reach /api/health',
       });
     } finally {
       setCheckingHealth(false);
@@ -588,26 +536,23 @@ export default function App() {
     async function loadData() {
       try {
         setLoading(true);
+        // /api/bus returns non-2xx when any MCP call failed, but the body still
+        // describes every section, so read it regardless of status.
         const res = await fetch('/api/bus');
-        if (!res.ok) {
-          const errJson = await res.json().catch(() => ({}));
-          if (!cancelled) {
-            setErrorReason(errJson.reason || `HTTP ${res.status}`);
-            setLoading(false);
-          }
-          return;
-        }
-        const json: BusResponse = await res.json();
-        if (!cancelled) {
-          setData(json);
+        const json = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (json && Array.isArray(json.failures)) {
+          setData(json as BusResponse);
           setErrorReason(null);
-          setLoading(false);
+        } else {
+          setErrorReason(
+            `/api/bus returned HTTP ${res.status}${json?.reason ? ` · ${json.reason}` : ''}`
+          );
         }
       } catch {
-        if (!cancelled) {
-          setErrorReason('Unable to reach weather data endpoint.');
-          setLoading(false);
-        }
+        if (!cancelled) setErrorReason('Unable to reach /api/bus');
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
     loadData();
@@ -616,110 +561,123 @@ export default function App() {
     };
   }, []);
 
-  async function lookupSixDigitPostal(code: string): Promise<{
-    found: boolean;
-    address: string;
-    region: SgRegion;
-  }> {
+  // Normalize get_sg_psi
+  const psiResult = data?.get_sg_psi;
+  const psiRaw = psiResult?.data;
+  const psiItem = psiRaw?.items?.[0] || psiRaw;
+  const psiReadings = psiItem?.readings;
+  const psiRegionsRaw = psiRaw?.regions;
+  const regionReading = (r: SgRegion, ...keys: string[]): number | undefined => {
+    const entry = psiRegionsRaw?.[r];
+    if (typeof entry === 'number') return keys.includes('psi_twenty_four_hourly') ? entry : undefined;
+    return firstNumber(...keys.map((k) => entry?.[k]));
+  };
+  const readingsFor = (
+    field: keyof NonNullable<PsiData['readings']>,
+    ...altKeys: string[]
+  ): PsiRegionValues => {
+    const fromReadings = psiReadings?.[field];
+    if (fromReadings) return fromReadings;
+    const out: PsiRegionValues = {};
+    for (const r of REGIONS) out[r] = regionReading(r, field, ...altKeys);
+    return out;
+  };
+  const psi24h = readingsFor('psi_twenty_four_hourly', 'psi_24h', 'psi', 'value');
+  const pm25_24h = readingsFor('pm25_twenty_four_hourly', 'pm25_24h', 'pm25');
+  const pm10_24h = readingsFor('pm10_twenty_four_hourly', 'pm10_24h', 'pm10');
+  const o3Sub = readingsFor('o3_sub_index', 'o3');
+  const coSub = readingsFor('co_sub_index', 'co');
+  const so2Sub = readingsFor('so2_sub_index', 'so2');
+  const psiTimestamp = psiItem?.timestamp || psiItem?.update_timestamp;
+
+  // Region centroids from MCP region_metadata when present
+  const regionCoords: Record<SgRegion, { lat: number; lon: number }> = { ...REGION_COORDS };
+  for (const m of psiRaw?.region_metadata || []) {
+    const name = m.name as SgRegion;
+    const lat = m.label_location?.latitude;
+    const lon = m.label_location?.longitude;
+    if (REGIONS.includes(name) && typeof lat === 'number' && typeof lon === 'number') {
+      regionCoords[name] = { lat, lon };
+    }
+  }
+
+  async function lookupSixDigitPostal(
+    code: string
+  ): Promise<{ found: true; address: string; region: SgRegion } | { found: false; error?: string }> {
     try {
       const res = await fetch(
         `https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(
           code
         )}&returnGeom=Y&getAddrDetails=Y&pageNum=1`
       );
-      if (res.ok) {
-        const json = await res.json();
-        const match =
-          json?.results?.find((r: any) => r.POSTAL === code) || json?.results?.[0];
-        if (match && match.ADDRESS) {
-          const lat = parseFloat(match.LATITUDE);
-          const lon = parseFloat(match.LONGITUDE);
-          const region =
-            !Number.isNaN(lat) && !Number.isNaN(lon)
-              ? findNearestRegion(lat, lon)
-              : SECTOR_FALLBACK[code.slice(0, 2)]?.region || 'central';
-          return {
-            found: true,
-            address: match.ADDRESS,
-            region,
-          };
-        }
+      if (!res.ok) {
+        return { found: false, error: `postal code lookup failed (HTTP ${res.status})` };
       }
+      const json = await res.json();
+      const match = json?.results?.find((r: any) => r.POSTAL === code);
+      const lat = parseFloat(match?.LATITUDE);
+      const lon = parseFloat(match?.LONGITUDE);
+      if (!match?.ADDRESS || Number.isNaN(lat) || Number.isNaN(lon)) {
+        return { found: false };
+      }
+      return { found: true, address: match.ADDRESS, region: findNearestRegion(lat, lon, regionCoords) };
     } catch {
-      // Fall back to sector lookup if network call fails
+      return { found: false, error: 'postal code lookup service unreachable' };
     }
-
-    const sector = code.slice(0, 2);
-    const sectorInfo = SECTOR_FALLBACK[sector];
-    if (sectorInfo) {
-      return {
-        found: true,
-        address: `${sectorInfo.area.toUpperCase()} SINGAPORE ${code}`,
-        region: sectorInfo.region,
-      };
-    }
-
-    return {
-      found: false,
-      address: '',
-      region: 'central',
-    };
   }
 
   async function resolveNearestPostalFromCoords(
     lat: number,
     lon: number
-  ): Promise<{ postal: string; address: string; region: SgRegion }> {
+  ): Promise<{ postal: string; address: string; region: SgRegion } | null> {
     try {
       const res = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`
       );
-      if (res.ok) {
-        const json = await res.json();
-        const postcode = json?.address?.postcode;
-        if (postcode && /^\d{6}$/.test(postcode)) {
-          const oneMapRes = await lookupSixDigitPostal(postcode);
-          if (oneMapRes.found) {
-            return {
-              postal: postcode,
-              address: oneMapRes.address,
-              region: oneMapRes.region,
-            };
-          }
-          return {
-            postal: postcode,
-            address: (json.display_name || `SINGAPORE ${postcode}`).toUpperCase(),
-            region: findNearestRegion(lat, lon),
-          };
-        }
-      }
+      if (!res.ok) return null;
+      const json = await res.json();
+      const postcode = json?.address?.postcode;
+      if (!postcode || !/^\d{6}$/.test(postcode)) return null;
+      const oneMapRes = await lookupSixDigitPostal(postcode);
+      return {
+        postal: postcode,
+        address: oneMapRes.found
+          ? oneMapRes.address
+          : (json.display_name || `SINGAPORE ${postcode}`).toUpperCase(),
+        region: oneMapRes.found ? oneMapRes.region : findNearestRegion(lat, lon, regionCoords),
+      };
     } catch {
-      // Fallback to nearest reference Singapore postal location
+      return null;
     }
-
-    const nearest = findNearestReferencePostal(lat, lon);
-    return {
-      postal: nearest.postal,
-      address: nearest.address,
-      region: nearest.region,
-    };
   }
 
   async function defaultToNearestPostal(withUnrecognisedNotice: boolean) {
-    if (withUnrecognisedNotice) {
-      setFallbackNotice('unrecognised postal code, defaulted to postal code nearest to you');
-    } else {
-      setFallbackNotice(null);
-    }
-
+    setFallbackNotice(
+      withUnrecognisedNotice ? 'unrecognised postal code, defaulted to postal code nearest to you' : null
+    );
     setLocating(true);
 
     const applyCoords = async (lat: number, lon: number) => {
       setUserCoords({ lat, lon });
       const resolved = await resolveNearestPostalFromCoords(lat, lon);
-      setPostalInput(resolved.postal);
-      setResolvedAddress(resolved.address);
-      setSelectedRegion(resolved.region);
+      if (resolved) {
+        setPostalInput(resolved.postal);
+        setResolvedAddress(resolved.address);
+        setSelectedRegion(resolved.region);
+      } else {
+        setResolvedAddress(null);
+        setFallbackNotice('could not find a postal code for your location');
+      }
+      setLocating(false);
+    };
+
+    const locationUnavailable = () => {
+      setResolvedAddress(null);
+      setFallbackNotice(
+        withUnrecognisedNotice
+          ? 'unrecognised postal code, and your location is unavailable'
+          : 'location unavailable — enter a 6-digit postal code'
+      );
       setLocating(false);
     };
 
@@ -733,22 +691,11 @@ export default function App() {
         async (pos) => {
           await applyCoords(pos.coords.latitude, pos.coords.longitude);
         },
-        async () => {
-          // If permission denied or unavailable in iframe, default to central Singapore (238823)
-          const def = REFERENCE_LOCATIONS[0];
-          setPostalInput(def.postal);
-          setResolvedAddress(def.address);
-          setSelectedRegion(def.region);
-          setLocating(false);
-        },
+        locationUnavailable,
         { timeout: 6000, maximumAge: 60000 }
       );
     } else {
-      const def = REFERENCE_LOCATIONS[0];
-      setPostalInput(def.postal);
-      setResolvedAddress(def.address);
-      setSelectedRegion(def.region);
-      setLocating(false);
+      locationUnavailable();
     }
   }
 
@@ -765,48 +712,70 @@ export default function App() {
         setSelectedRegion(res.region);
         return;
       }
+      if (res.error) {
+        setResolvedAddress(null);
+        setFallbackNotice(res.error);
+        return;
+      }
     }
 
     // Any other unrecognised format or invalid 6-digit code fails gracefully
     await defaultToNearestPostal(true);
   }
 
-  // Normalize get_sg_psi
-  const psiItem = data?.get_sg_psi?.items?.[0] || data?.get_sg_psi;
-  const psiReadings = psiItem?.readings;
-  const psi24h = psiReadings?.psi_twenty_four_hourly || {};
-  const pm25_24h = psiReadings?.pm25_twenty_four_hourly || {};
-  const pm10_24h = psiReadings?.pm10_twenty_four_hourly || {};
-  const o3Sub = psiReadings?.o3_sub_index || {};
-  const coSub = psiReadings?.co_sub_index || {};
-  const so2Sub = psiReadings?.so2_sub_index || {};
-
   // Normalize get_sg_weather_now
-  const nowItem = data?.get_sg_weather_now?.items?.[0] || data?.get_sg_weather_now;
+  const nowResult = data?.get_sg_weather_now;
+  const nowRaw = nowResult?.data;
+  const nowItem = nowRaw?.items?.[0] || nowRaw;
   const areaForecasts: WeatherNowArea[] = nowItem?.forecasts || [];
   const nowPeriod = formatTimeRange(nowItem?.valid_period?.start, nowItem?.valid_period?.end);
 
-  // Normalize get_sg_forecast
-  const rawForecast = data?.get_sg_forecast;
-  const forecast24hItem =
-    rawForecast?.forecast_24h?.items?.[0] ||
-    rawForecast?.forecast_24h ||
-    (rawForecast?.items?.[0]?.general ? rawForecast.items[0] : undefined);
-  const general24h = forecast24hItem?.general;
-  const periods24h: Forecast24hPeriod[] = forecast24hItem?.periods || [];
+  // Normalize get_sg_forecast (24h)
+  const forecast24Result = data?.get_sg_forecast_24h;
+  const forecast24Raw: any = forecast24Result?.data;
+  const forecast24hItem = forecast24Raw?.items?.[0] || forecast24Raw;
+  const general24h = forecast24hItem?.general || forecast24hItem;
+  const current24h = forecast24hItem?.current || forecast24Raw?.current;
 
-  const forecast4dItem =
-    rawForecast?.forecast_4day?.items?.[0] ||
-    rawForecast?.forecast_4day ||
-    (rawForecast?.items?.[0]?.forecasts ? rawForecast.items[0] : undefined);
-  const days4d: Forecast4DayItem[] = forecast4dItem?.forecasts || [];
+  // Current readings: only values the MCP server returns. If it has no current
+  // reading, show the MCP 24-hour range instead of inventing a number.
+  const currentTemp = firstNumber(current24h?.temperature, general24h?.temperature);
+  const tempLow = firstNumber(general24h?.temperature?.low);
+  const tempHigh = firstNumber(general24h?.temperature?.high);
+  const tempRange = formatRange(general24h?.temperature);
+  const humidityText =
+    firstNumber(current24h?.humidity, current24h?.relative_humidity, general24h?.relative_humidity)?.toString() ??
+    formatRange(general24h?.relative_humidity ?? general24h?.humidity);
+  const windText =
+    firstNumber(current24h?.wind_speed, general24h?.wind?.speed)?.toString() ??
+    formatRange(general24h?.wind?.speed);
+  const forecastText: string | undefined =
+    typeof general24h?.forecast === 'string'
+      ? general24h.forecast
+      : general24h?.forecast?.text || general24h?.forecast?.summary;
+
+  // Normalize get_sg_forecast (4day)
+  const forecast4Result = data?.get_sg_forecast_4day;
+  const forecast4Raw: any = forecast4Result?.data;
+  const forecast4dItem = forecast4Raw?.items?.[0] || forecast4Raw;
+  const days4d: Forecast4DayItem[] = Array.isArray(forecast4dItem?.forecasts)
+    ? forecast4dItem.forecasts
+    : Array.isArray(forecast4Raw)
+      ? forecast4Raw
+      : [];
 
   // Normalize get_asean_climate
-  const rawAsean = data?.get_asean_climate;
+  const aseanResult = data?.get_asean_climate;
+  const rawAsean: any = aseanResult?.data;
   const aseanCountries: AseanCountryClimate[] = Array.isArray(rawAsean)
     ? rawAsean
-    : rawAsean?.countries || [];
+    : Array.isArray(rawAsean?.countries)
+      ? rawAsean.countries
+      : rawAsean && typeof rawAsean === 'object'
+        ? Object.values(rawAsean).filter((v): v is AseanCountryClimate => Boolean(v) && typeof v === 'object')
+        : [];
 
+  const mcpDown = (data && !data.ok) || (healthStatus && !healthStatus.ok);
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 flex justify-center">
       <div className="w-full max-w-md min-h-screen bg-slate-50 border-x border-slate-200 flex flex-col">
@@ -856,6 +825,27 @@ export default function App() {
           {!loading && errorReason && (
             <div className="p-3 border border-rose-200 bg-white text-xs text-rose-700 font-mono">
               {errorReason}
+            </div>
+          )}
+
+          {!loading && mcpDown && (
+            <div role="alert" className="mb-4 p-3 rounded-xl border border-rose-300 bg-rose-50 text-xs text-rose-800">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>MCP server vdineshk/sg-weather-data-mcp is failing</span>
+              </div>
+              <ul className="mt-1.5 space-y-0.5 font-mono break-words">
+                {data?.failures.map((f) => (
+                  <li key={f.section}>
+                    {f.section} · HTTP {f.status} · {f.reason}
+                  </li>
+                ))}
+                {healthStatus && !healthStatus.ok && (
+                  <li>
+                    /api/health · HTTP {healthStatus.status ?? '—'} · {healthStatus.reason}
+                  </li>
+                )}
+              </ul>
             </div>
           )}
 
@@ -914,13 +904,19 @@ export default function App() {
                   <h2 id="heading-psi" className="text-sm font-semibold text-slate-900">
                     PSI
                   </h2>
-                  {psiItem?.timestamp && (
+                  {psiResult?.ok && psiTimestamp && (
                     <span className="text-[11px] text-slate-500 font-mono">
-                      Last updated {formatTimeRange(psiItem.timestamp)}
+                      Last updated {formatTimeRange(psiTimestamp)}
                     </span>
                   )}
                 </div>
 
+                {!psiResult?.ok ? (
+                  <div className="pt-3">
+                    <McpError tool="get_sg_psi" result={psiResult} />
+                  </div>
+                ) : (
+                <>
                 <div className="pt-3 space-y-2.5">
                   {(() => {
                     const activeVal = psi24h[selectedRegion];
@@ -1049,6 +1045,8 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
+                </>
+                )}
               </section>
 
               {/* Section 2: Weather forecast for Singapore */}
@@ -1057,7 +1055,7 @@ export default function App() {
                   <h2 id="heading-forecast" className="text-sm font-semibold text-slate-900">
                     Weather forecast for Singapore
                   </h2>
-                  {forecast24hItem?.valid_period && (
+                  {forecast24Result?.ok && forecast24hItem?.valid_period && (
                     <span className="text-[11px] text-slate-500 font-mono">
                       Last updated{' '}
                       {formatTimeRange(
@@ -1068,87 +1066,83 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Top Weather Card Layout matching screenshot */}
-                <div className="pt-4">
-                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
-                    <span>Singapore, Singapore</span>
-                    <span aria-hidden="true">·</span>
-                    <span className="font-mono text-[11px]">1.2897°, 103.8501°</span>
+                {!forecast24Result?.ok ? (
+                  <div className="pt-4">
+                    <McpError tool="get_sg_forecast (24h)" result={forecast24Result} />
                   </div>
-
-                  <div className="mt-1.5 text-2xl font-bold tracking-tight text-slate-900">
-                    Singapore
-                  </div>
-
-                  <div className="mt-2 flex items-end justify-between gap-3">
-                    <div className="text-5xl font-bold tracking-tight text-slate-900 leading-none tabular-nums">
-                      {rawForecast?.current_metrics?.temperature ??
-                        (general24h?.temperature?.low && general24h?.temperature?.high
-                          ? Math.round((general24h.temperature.low + general24h.temperature.high) / 2)
-                          : 28)}
-                      °C
+                ) : (
+                  <div className="pt-4">
+                    <div className="text-2xl font-bold tracking-tight text-slate-900">
+                      Singapore
                     </div>
 
-                    <div className="text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {getHeroWeatherIcon(general24h?.forecast)}
-                        <span className="text-sm font-semibold text-slate-800">
-                          {(general24h?.forecast || 'Partly Cloudy').replace(/\s*\([^)]*\)/g, '')}
-                        </span>
+                    <div className="mt-2 flex items-end justify-between gap-3">
+                      <div
+                        className={`${
+                          currentTemp !== undefined ? 'text-5xl' : 'text-4xl'
+                        } font-bold tracking-tight text-slate-900 leading-none tabular-nums`}
+                      >
+                        {currentTemp ?? tempRange ?? '—'}°C
                       </div>
-                      <div className="mt-1 font-mono text-xs whitespace-nowrap">
-                        <span className="text-[11px] font-sans font-medium text-slate-400 mr-1.5">
-                          Low / High
-                        </span>
-                        <span className="text-slate-400">
-                          {general24h?.temperature?.low ?? 25}°
-                        </span>
-                        <span className="text-slate-300 mx-1">/</span>
-                        <span className="font-semibold text-slate-900">
-                          {general24h?.temperature?.high ?? 34}°
-                        </span>
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-2 gap-3">
-                    <div className="bg-slate-50/70 rounded-2xl p-3.5">
-                      <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                        <Droplets className="w-3.5 h-3.5 text-sky-500 shrink-0" aria-hidden="true" />
-                        <span>Humidity</span>
-                      </div>
-                      <div className="mt-1.5 text-lg font-mono font-bold text-slate-900">
-                        {rawForecast?.current_metrics?.humidity ??
-                          (general24h?.relative_humidity?.low && general24h?.relative_humidity?.high
-                            ? `${general24h.relative_humidity.low}–${general24h.relative_humidity.high}`
-                            : 81)}
-                        %
+                      <div className="text-right">
+                        {forecastText && (
+                          <div className="flex items-center justify-end gap-1.5">
+                            {getHeroWeatherIcon(forecastText)}
+                            <span className="text-sm font-semibold text-slate-800">
+                              {forecastText.replace(/\s*\([^)]*\)/g, '')}
+                            </span>
+                          </div>
+                        )}
+                        {currentTemp !== undefined && (
+                          <div className="mt-1 font-mono text-xs whitespace-nowrap">
+                            <span className="text-[11px] font-sans font-medium text-slate-400 mr-1.5">
+                              Low / High
+                            </span>
+                            <span className="text-slate-400">{tempLow ?? '—'}°</span>
+                            <span className="text-slate-300 mx-1">/</span>
+                            <span className="font-semibold text-slate-900">{tempHigh ?? '—'}°</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    <div className="bg-slate-50/70 rounded-2xl p-3.5">
-                      <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                        <Wind className="w-3.5 h-3.5 text-slate-500 shrink-0" aria-hidden="true" />
-                        <span>Wind Speed</span>
+                    <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-2 gap-3">
+                      <div className="bg-slate-50/70 rounded-2xl p-3.5">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                          <Droplets className="w-3.5 h-3.5 text-sky-500 shrink-0" aria-hidden="true" />
+                          <span>Humidity</span>
+                        </div>
+                        <div className="mt-1.5 text-lg font-mono font-bold text-slate-900">
+                          {humidityText ? `${humidityText}%` : '—'}
+                        </div>
                       </div>
-                      <div className="mt-1.5 text-lg font-mono font-bold text-slate-900">
-                        {rawForecast?.current_metrics?.wind_speed ??
-                          (general24h?.wind?.speed?.low && general24h?.wind?.speed?.high
-                            ? `${general24h.wind.speed.low}–${general24h.wind.speed.high}`
-                            : 6)}{' '}
-                        km/h
+
+                      <div className="bg-slate-50/70 rounded-2xl p-3.5">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                          <Wind className="w-3.5 h-3.5 text-slate-500 shrink-0" aria-hidden="true" />
+                          <span>Wind Speed</span>
+                        </div>
+                        <div className="mt-1.5 text-lg font-mono font-bold text-slate-900">
+                          {windText ? `${windText} km/h` : '—'}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                )}
 
-                {days4d.length > 0 && (
-                  <div className="mt-5 pt-4 border-t border-slate-200">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-xs font-semibold text-slate-900">4-Day Forecast</h3>
+                <div className="mt-5 pt-4 border-t border-slate-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-xs font-semibold text-slate-900">4-Day Forecast</h3>
+                    {forecast4Result?.ok && (
                       <span className="text-[11px] font-medium text-slate-400">Low / High</span>
-                    </div>
+                    )}
+                  </div>
+                  {!forecast4Result?.ok ? (
+                    <McpError tool="get_sg_forecast (4day)" result={forecast4Result} />
+                  ) : days4d.length === 0 ? (
+                    <p className="text-xs text-slate-500">MCP returned no 4-day forecast.</p>
+                  ) : (
                     <div className="divide-y divide-slate-100 text-xs">
                       {days4d.map((day, idx) => (
                         <div key={idx} className="py-3 flex items-start justify-between gap-2">
@@ -1173,8 +1167,8 @@ export default function App() {
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </section>
 
               {/* Section 3: Weather now (2 hourly) by area (Accordion collapsed by default) */}
@@ -1189,7 +1183,7 @@ export default function App() {
                     <h2 id="heading-now" className="text-sm font-semibold text-slate-900">
                       Weather now (2 hourly) by area
                     </h2>
-                    {nowPeriod && (
+                    {nowResult?.ok && nowPeriod && (
                       <span className="text-[11px] text-slate-500 font-mono">
                         Last updated {nowPeriod}
                       </span>
@@ -1203,8 +1197,18 @@ export default function App() {
                   />
                 </button>
 
-                {weatherNowOpen && (
+                {/* A failed MCP call is shown even while the accordion is collapsed */}
+                {!nowResult?.ok && (
+                  <div className="px-4 pb-4">
+                    <McpError tool="get_sg_weather_now" result={nowResult} />
+                  </div>
+                )}
+
+                {nowResult?.ok && weatherNowOpen && (
                   <div className="px-4 pb-4 pt-1 border-t border-slate-200 divide-y divide-slate-100 text-xs">
+                    {areaForecasts.length === 0 && (
+                      <p className="py-2 text-slate-500">MCP returned no area forecasts.</p>
+                    )}
                     {areaForecasts.map((item, idx) => {
                       const areaName = item.area || item.name || `Area ${idx + 1}`;
                       return (
@@ -1233,7 +1237,9 @@ export default function App() {
                       Smithery MCP Service
                     </h2>
                   </div>
-                  {healthStatus?.answered !== false ? (
+                  {!healthStatus ? (
+                    <div className="text-xs font-medium text-slate-500 shrink-0">Checking…</div>
+                  ) : healthStatus.ok ? (
                     <div className="flex items-center gap-1 text-xs font-medium text-emerald-600 shrink-0">
                       <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
                       <span>Reachable</span>
@@ -1241,14 +1247,16 @@ export default function App() {
                   ) : (
                     <div className="flex items-center gap-1 text-xs font-medium text-rose-600 shrink-0">
                       <XCircle className="w-3.5 h-3.5" aria-hidden="true" />
-                      <span>Unreachable</span>
+                      <span>{healthStatus.answered ? 'Error' : 'Unreachable'}</span>
                     </div>
                   )}
                 </div>
 
-                <div className="mt-1 font-mono text-xs text-slate-500 break-all">
-                  https://server.smithery.ai/vdineshk/sg-weather-data-mcp
-                </div>
+                {healthStatus?.server && (
+                  <div className="mt-1 font-mono text-xs text-slate-500 break-all">
+                    {healthStatus.server}
+                  </div>
+                )}
 
                 <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 gap-3">
                   <div className="bg-slate-50/70 rounded-2xl p-3.5">
@@ -1268,39 +1276,46 @@ export default function App() {
                     </div>
                     <div className="mt-1.5 text-sm leading-snug">
                       <span className="font-mono font-bold text-slate-900">
-                        HTTP {healthStatus?.status ?? 200}
+                        HTTP {healthStatus?.status ?? '—'}
                       </span>
-                      <span className="text-slate-400 mx-1">·</span>
-                      <span className="text-xs text-slate-600">
-                        {healthStatus?.status === 200 ? 'Authenticated' : 'OAuth Protected'}
-                      </span>
+                      {healthStatus && (
+                        <>
+                          <span className="text-slate-400 mx-1">·</span>
+                          <span className="text-xs text-slate-600">
+                            {healthStatus.ok
+                              ? 'Authenticated'
+                              : healthStatus.status === 401 || healthStatus.status === 403
+                                ? 'Unauthorized'
+                                : 'Failed'}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-slate-100 space-y-3 text-xs">
-                  <p className="text-slate-600 leading-relaxed">
-                    {healthStatus?.answered !== false
-                      ? 'Smithery MCP endpoint (vdineshk/sg-weather-data-mcp) is online and responding.'
-                      : 'Smithery MCP endpoint (vdineshk/sg-weather-data-mcp) is currently unreachable.'}
-                  </p>
+                  {healthStatus && (
+                    <p
+                      className={`leading-relaxed break-words ${
+                        healthStatus.ok ? 'text-slate-600' : 'text-rose-700 font-mono'
+                      }`}
+                    >
+                      {healthStatus.reason}
+                    </p>
+                  )}
 
-                  <div>
-                    <div className="text-slate-400 mb-0.5">Authorization Server</div>
-                    <div className="font-mono text-slate-700 break-all">
-                      https://auth.smithery.ai/vdineshk/sg-weather-data-mcp
+                  {healthStatus?.ok && (
+                    <div>
+                      <div className="flex items-center gap-1.5 text-slate-400 mb-1">
+                        <Wrench className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
+                        <span>Available MCP Weather Tools</span>
+                      </div>
+                      <div className="font-mono text-slate-700 leading-relaxed">
+                        {healthStatus.tools.length > 0 ? healthStatus.tools.join(' · ') : 'none listed'}
+                      </div>
                     </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center gap-1.5 text-slate-400 mb-1">
-                      <Wrench className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
-                      <span>Available MCP Weather Tools</span>
-                    </div>
-                    <div className="font-mono text-slate-700 leading-relaxed">
-                      get_sg_psi · get_sg_weather_now · get_sg_forecast · get_asean_climate
-                    </div>
-                  </div>
+                  )}
 
                   <div className="pt-1 flex items-center justify-between text-[11px] text-slate-400">
                     <span>Endpoint: /api/health</span>
@@ -1334,38 +1349,51 @@ export default function App() {
                 </h2>
               </div>
 
-              <div className="divide-y divide-slate-200">
-                {aseanCountries.map((c, idx) => (
-                  <div key={c.country_code || c.country || `asean-${idx}`} className="py-3.5 space-y-2 text-xs">
-                    <div>
-                      <div className="text-sm font-semibold text-slate-900">
-                        {c.country} <span className="font-mono text-xs text-slate-500">({c.country_code})</span>
+              {!aseanResult?.ok ? (
+                <div className="pt-3">
+                  <McpError tool="get_asean_climate" result={aseanResult} />
+                </div>
+              ) : aseanCountries.length === 0 ? (
+                <p className="pt-3 text-xs text-slate-500">MCP returned no ASEAN countries.</p>
+              ) : (
+                <div className="divide-y divide-slate-200">
+                  {aseanCountries.map((c, idx) => {
+                    const name = c.country || c.name;
+                    const code = c.country_code || c.code;
+                    return (
+                      <div key={code || name || `asean-${idx}`} className="py-3.5 space-y-2 text-xs">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-900">
+                            {name ?? '—'}{' '}
+                            {code && <span className="font-mono text-xs text-slate-500">({code})</span>}
+                          </div>
+                          {c.capital && (
+                            <div className="text-slate-500 mt-0.5">Capital: {c.capital}</div>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 gap-2">
+                          <div>
+                            <span className="text-slate-500 block">Average Temperatures</span>
+                            <span className="font-mono text-slate-900">{displayValue(c.average_temperature)}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 block">Annual Rainfall</span>
+                            <span className="font-mono text-slate-900">{displayValue(c.annual_rainfall)}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 block">Monsoon Seasons</span>
+                            <span className="text-slate-800">{displayValue(c.monsoon_seasons)}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 block">Natural Hazards</span>
+                            <span className="text-slate-800">{displayValue(c.natural_hazards)}</span>
+                          </div>
+                        </div>
                       </div>
-                      {c.capital && (
-                        <div className="text-slate-500 mt-0.5">Capital: {c.capital}</div>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-1 gap-2">
-                      <div>
-                        <span className="text-slate-500 block">Average Temperatures</span>
-                        <span className="font-mono text-slate-900">{c.average_temperature}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block">Annual Rainfall</span>
-                        <span className="font-mono text-slate-900">{c.annual_rainfall}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block">Monsoon Seasons</span>
-                        <span className="text-slate-800">{c.monsoon_seasons}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block">Natural Hazards</span>
-                        <span className="text-slate-800">{c.natural_hazards}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </section>
           )}
         </main>

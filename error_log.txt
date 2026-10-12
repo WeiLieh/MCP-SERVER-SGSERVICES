@@ -1,4 +1,6 @@
 [2026-10-10] React Warning: Each child in a list should have a unique "key" prop in App.tsx (Resolved: updated WeatherNowArea item key mapping to use item.area and index).
 [2026-10-10] API Error: /api/health.js returned HTTP 401 Unauthorized when SMITHERY_API_KEY was not yet configured in Vercel environment variables (Resolved: configured SMITHERY_API_KEY in Vercel and updated api/health.js and api/bus.js).
 [2026-10-11] Git Error: fatal: not a git repository (or any of the parent directories): .git after container restart (Resolved: re-initialized git repository, fetched remote main history, and pushed changes).
-
+[2026-10-12] Bug: api/bus.js called get_sg_forecast with `forecast_type`, but the MCP tool's parameter is `period` ('24h' / '4day'). The silent NEA fallback hid this (Resolved: now sends `period`).
+[2026-10-12] Bug: api/bus.js silently replaced failed MCP calls with NEA / Open-Meteo / hard-coded data, so MCP failures never appeared on screen (Resolved: fallbacks removed; failures reported per section and in a banner).
+[2026-10-12] Environment: the cloud dev container's proxy blocks server.smithery.ai (CONNECT 403), and a toolbox copy of the MCP returned HTTP 429 Too Many Requests, so live MCP responses could not be inspected during development (Not a code error; verified with stubbed responses instead).
