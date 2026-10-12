@@ -44,3 +44,8 @@
 - [2026-10-12] MCP rate limit (HTTP 429) handling: `/api/bus` calls the MCP tools one at a time (not in parallel). An HTTP 429 reply is retried up to 2 times, waiting for the server's `Retry-After` (capped at 3s) or 1s/2s backoff. Per-request timeout is 10s and `/api/bus` may run up to 60s on Vercel (`maxDuration`).
 - [2026-10-12] MCP result reuse: successful MCP results are reused for up to 5 minutes (in-memory per server instance, plus Vercel CDN `s-maxage=300` on fully successful responses) so each page view doesn't trigger a new burst of MCP calls. Only real MCP data is reused, never past its 5-minute window; failed calls are never cached (`Cache-Control: no-store`) and are always shown on screen.
 - [2026-10-12] The front end runs the `/api/health` check after `/api/bus` finishes, not at the same time.
+
+## Git & Release Workflow
+- [2026-10-12] Changes are developed on branch `claude/charming-bell-r1nltr`, opened as a pull request, and merged into `main`; Vercel deploys from `main`. PR WeiLieh/MCP-SERVER-SGSERVICES#1 (report MCP failures, remove fallbacks and hard-coded data) and PR WeiLieh/MCP-SERVER-SGSERVICES#2 (MCP rate-limit handling) were both merged on 2026-10-12.
+- [2026-10-12] GitHub access for Claude comes from the Claude GitHub App / the user's connected GitHub account, not from personal access tokens. Never paste tokens into chat.
+- [2026-10-12] All errors, including tooling, git and test errors (not only app errors), are logged in `error_log.txt`.
