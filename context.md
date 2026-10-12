@@ -31,15 +31,13 @@
 - [2026-10-11] PSI Selected Card Badge Position: Moved the PSI range label (`Good`, `Moderate`, `Unhealthy`, `Very Unhealthy`, `Hazardous`) from the top-right corner to be centered directly below the large PSI number.
 - [2026-10-11] Unified Font System: Standardized typography across the entire user interface to use a single consistent sans-serif font family (`Plus Jakarta Sans`) with `tabular-nums` for all numbers, metrics, headings, and labels (removing mixed serif and monospace font families).
 
-
-
-
-
-
-
-
-
-
-
-
-
+## MCP Failure Transparency
+- [2026-10-12] No fallbacks: `api/bus.js` no longer switches to the data.gov.sg (NEA) APIs, Open-Meteo, or the hard-coded ASEAN dataset when an MCP call fails. Every section comes only from `vdineshk/sg-weather-data-mcp`; a failed call is reported, never replaced.
+- [2026-10-12] Nothing hard-coded: removed the hard-coded ASEAN climate table, the front-end placeholder values (`28°C`, `Partly Cloudy`, `25° / 34°`, `81%`, `6 km/h`), the fixed `1.2897°, 103.8501°` location line, the hard-coded postal code/sector tables and the `238823` default location, the fixed `HTTP 200` / `Reachable` defaults, the hard-coded Authorization Server line, and the hard-coded MCP tool list (now read live from the MCP `tools/list`).
+- [2026-10-12] Current temperature and humidity come only from the MCP `get_sg_forecast` (24h) response. If the MCP server returns a current reading it is shown; otherwise the MCP 24-hour range is shown (e.g. `25–33°C`, `60–95%`). Nothing is calculated or invented.
+- [2026-10-12] Shared MCP client `api/_mcp.js` (underscore prefix = not deployed as a Vercel function, so there are still exactly 2 serverless functions). It performs the MCP `initialize` handshake (with `Mcp-Session-Id`), checks `response.ok` before reading any body, detects JSON-RPC errors and tool `isError` results, times out after 15s, and redacts the key from every reason string.
+- [2026-10-12] `/api/bus` response format: one entry per section (`get_sg_psi`, `get_sg_weather_now`, `get_sg_forecast_24h`, `get_sg_forecast_4day`, `get_asean_climate`), each `{ ok, status, data }` or `{ ok: false, status, reason }`, plus `ok` and a `failures` list. When any MCP call fails, the HTTP status is the first failure's upstream status (non-2xx), and the body still carries the sections that succeeded.
+- [2026-10-12] `/api/health` performs `initialize` + `tools/list` and returns `answered`, `ok`, `status`, `latencyMs`, `keyConfigured`, `server`, `tools`, and a one-line `reason`.
+- [2026-10-12] Front end when MCP fails: a red banner at the top of both tabs lists every failing MCP call (`tool · HTTP status · reason`), including `/api/health`. Each failed section (PSI, Weather forecast, 4-Day Forecast, Weather now — shown even while the accordion is collapsed, ASEAN) is replaced by an `MCP call <tool> failed` card with the HTTP status and reason. The `Smithery MCP Service` card shows `Checking…`, `Reachable`, `Error` or `Unreachable` from the real health result, and the HTTP / Auth card shows `Authenticated`, `Unauthorized` or `Failed`.
+- [2026-10-12] A missing PSI reading shows a grey `No data` card instead of defaulting to `Good`.
+- [2026-10-12] Postal code / geolocation: lookup failures are shown as a message instead of substituting a hard-coded address. PSI region mapping uses MCP `region_metadata` coordinates when present, otherwise the 5 NEA region centroids (`REGION_COORDS`), which remain the only fixed geographic constants.
