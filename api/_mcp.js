@@ -3,7 +3,18 @@
 
 export const MCP_URL = 'https://server.smithery.ai/vdineshk/sg-weather-data-mcp';
 
-const TIMEOUT_MS = 15000;
+const TIMEOUT_MS = 10000;
+// HTTP 429 handling: wait (Retry-After, capped) and try again a limited number of times.
+const MAX_429_RETRIES = 2;
+const MAX_RETRY_WAIT_MS = 3000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function retryAfterMs(response, attempt) {
+  const header = Number(response.headers.get('retry-after'));
+  const ms = Number.isFinite(header) && header > 0 ? header * 1000 : 1000 * 2 ** attempt;
+  return Math.min(ms, MAX_RETRY_WAIT_MS);
+}
 
 export function getApiKey() {
   const key =
@@ -63,13 +74,18 @@ export async function openMcpSession(key) {
     if (key) headers.Authorization = `Bearer ${key}`;
     if (sessionId) headers['Mcp-Session-Id'] = sessionId;
 
-    const send = (target) =>
-      fetch(target, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
+    const send = async (target) => {
+      for (let attempt = 0; ; attempt++) {
+        const response = await fetch(target, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        });
+        if (response.status !== 429 || attempt >= MAX_429_RETRIES) return response;
+        await sleep(retryAfterMs(response, attempt));
+      }
+    };
 
     let response = await send(url);
     if ((response.status === 401 || response.status === 403) && key && url === MCP_URL) {
@@ -107,7 +123,9 @@ export async function openMcpSession(key) {
           ? key
             ? ' (API key rejected)'
             : ' (SMITHERY_API_KEY is not set in environment)'
-          : '';
+          : response.status === 429
+            ? ` (rate limited: Too Many Requests, still failing after ${MAX_429_RETRIES} retries)`
+            : '';
       return failure(response.status, `MCP server returned HTTP ${response.status}${authHint}`, key);
     }
 
@@ -141,7 +159,8 @@ export async function openMcpSession(key) {
   if (!init.ok) return init;
 
   try {
-    await post({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    const note = await post({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    await note.body?.cancel();
   } catch {
     // A failed notification surfaces on the next request.
   }
