@@ -520,10 +520,6 @@ export default function App() {
   }
 
   useEffect(() => {
-    checkMcpHealth();
-  }, []);
-
-  useEffect(() => {
     try {
       localStorage.setItem('sg_weather_selected_region', selectedRegion);
     } catch {
@@ -552,7 +548,12 @@ export default function App() {
       } catch {
         if (!cancelled) setErrorReason('Unable to reach /api/bus');
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          // Run the health check after /api/bus, not alongside it, so the two
+          // don't hit the MCP server's rate limit together.
+          checkMcpHealth();
+        }
       }
     }
     loadData();

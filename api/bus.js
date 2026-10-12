@@ -12,9 +12,22 @@ const SECTIONS = {
 
 const ALLOWED_TOOLS = new Set(Object.values(SECTIONS).map((s) => s.tool));
 
+// The MCP server rate-limits (HTTP 429). Successful MCP results are reused for
+// CACHE_SECONDS so page views don't each trigger a burst of MCP calls. Only
+// successful MCP data is cached, and never past CACHE_SECONDS; failures are never cached.
+const CACHE_SECONDS = 300;
+const cache = new Map();
+
+function cached(name) {
+  const hit = cache.get(name);
+  return hit && Date.now() - hit.at < CACHE_SECONDS * 1000 ? hit.result : null;
+}
+
+// Allows time for sequential calls plus 429 retries on Vercel.
+export const config = { maxDuration: 60 };
+
 export default async function handler(req, res) {
   const key = getApiKey();
-  const session = await openMcpSession(key);
 
   // Single-tool mode: /api/bus?tool=get_sg_psi
   const queryTool = req.query?.tool || req.body?.tool;
@@ -23,6 +36,7 @@ export default async function handler(req, res) {
     if (!ALLOWED_TOOLS.has(tool)) {
       return res.status(400).json({ status: 400, reason: `Unsupported tool: ${tool}` });
     }
+    const session = await openMcpSession(key);
     const result = session.ok ? await session.callTool(tool, req.body?.arguments || {}) : session;
     if (!result.ok) {
       return res.status(result.status).json({ tool, status: result.status, reason: result.reason });
@@ -31,11 +45,17 @@ export default async function handler(req, res) {
   }
 
   const names = Object.keys(SECTIONS);
-  const results = await Promise.all(
-    names.map((name) =>
-      session.ok ? session.callTool(SECTIONS[name].tool, SECTIONS[name].args) : session
-    )
-  );
+  const results = names.map(cached);
+  if (results.some((r) => !r)) {
+    const session = await openMcpSession(key);
+    // One call at a time to stay under the MCP server's rate limit.
+    for (let i = 0; i < names.length; i++) {
+      if (results[i]) continue;
+      const name = names[i];
+      results[i] = session.ok ? await session.callTool(SECTIONS[name].tool, SECTIONS[name].args) : session;
+      if (results[i].ok) cache.set(name, { at: Date.now(), result: results[i] });
+    }
+  }
 
   const body = { ok: true, failures: [] };
   names.forEach((name, i) => {
@@ -51,5 +71,9 @@ export default async function handler(req, res) {
 
   // Non-2xx when any MCP call failed; the body still carries the sections that succeeded.
   const status = body.ok ? 200 : body.failures[0].status;
+  res.setHeader(
+    'Cache-Control',
+    body.ok ? `public, max-age=0, s-maxage=${CACHE_SECONDS}` : 'no-store'
+  );
   return res.status(status).json(body);
 }
