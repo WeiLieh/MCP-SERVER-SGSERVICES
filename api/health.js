@@ -1,5 +1,8 @@
 import { MCP_URL, getApiKey, openMcpSession } from './_mcp.js';
 
+// /api/health never runs a tool, so it cannot see the MCP tool-call quota.
+const CHECKED = 'server reachable, key accepted (tool quota not checked)';
+
 export default async function handler(req, res) {
   const startTime = Date.now();
   const key = getApiKey();
@@ -18,6 +21,7 @@ export default async function handler(req, res) {
       server: MCP_URL,
       tools: [],
       reason: listed.reason,
+      upstream: listed.upstream,
     });
   }
 
@@ -29,6 +33,7 @@ export default async function handler(req, res) {
     keyConfigured: Boolean(key),
     server: MCP_URL,
     tools: listed.tools,
-    reason: 'MCP server answered successfully',
+    checked: CHECKED,
+    reason: `MCP server answered: ${CHECKED}`,
   });
 }
