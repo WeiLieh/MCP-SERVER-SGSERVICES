@@ -39,7 +39,9 @@ export default async function handler(req, res) {
     const session = await openMcpSession(key);
     const result = session.ok ? await session.callTool(tool, req.body?.arguments || {}) : session;
     if (!result.ok) {
-      return res.status(result.status).json({ tool, status: result.status, reason: result.reason });
+      return res
+        .status(result.status)
+        .json({ tool, status: result.status, reason: result.reason, upstream: result.upstream });
     }
     return res.status(200).json(result.data);
   }
@@ -62,9 +64,10 @@ export default async function handler(req, res) {
     const r = results[i];
     body[name] = r.ok
       ? { ok: true, status: r.status, data: r.data }
-      : { ok: false, status: r.status, reason: r.reason };
+      : { ok: false, status: r.status, reason: r.reason, upstream: r.upstream };
     if (!r.ok) {
       body.ok = false;
+      // Short reason for the screen; full MCP reply (key redacted) is in body[name].upstream.
       body.failures.push({ tool: SECTIONS[name].tool, section: name, status: r.status, reason: r.reason });
     }
   });

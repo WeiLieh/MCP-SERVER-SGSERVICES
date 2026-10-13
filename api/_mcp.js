@@ -31,29 +31,56 @@ function redact(text, key) {
   return key ? str.split(key).join('[redacted]') : str;
 }
 
+// The on-screen reason is short; the full upstream reply goes in `upstream`.
+const REASON_MAX_CHARS = 200;
+
 function oneLine(text, key) {
-  return redact(text, key).replace(/\s+/g, ' ').trim().slice(0, 500);
+  return redact(text, key).replace(/\s+/g, ' ').trim().slice(0, REASON_MAX_CHARS);
 }
 
-// Diagnostics for a non-2xx reply: rate-limit / retry headers and the start of
-// the body, so the real cause (e.g. a per-minute vs daily quota) is visible.
+// Redacts the key anywhere inside a JSON-compatible value.
+function redactValue(value, key) {
+  if (!key || value === undefined) return value;
+  return JSON.parse(redact(JSON.stringify(value), key));
+}
+
+// Parses text as JSON (or an SSE "data:" line) when possible, else returns the text.
+function parseBody(text) {
+  try {
+    return parseSseOrJson(text) ?? text;
+  } catch {
+    return text;
+  }
+}
+
 const DIAGNOSTIC_HEADER = /rate|retry|limit|quota|reset/i;
 
-async function describeUpstreamError(response) {
-  const headers = [];
+// Full details of a non-2xx reply: rate-limit / retry headers and the complete
+// body (key redacted), for the endpoints' JSON.
+async function readUpstreamError(response, stage, key) {
+  const headers = {};
   response.headers.forEach((value, name) => {
-    if (DIAGNOSTIC_HEADER.test(name)) headers.push(`${name}=${value}`);
+    if (DIAGNOSTIC_HEADER.test(name)) headers[name] = redact(value, key);
   });
-  let body = '';
+  let text = '';
   try {
-    body = (await response.text()).replace(/\s+/g, ' ').trim().slice(0, 200);
+    text = redact(await response.text(), key);
   } catch {
-    body = '';
+    text = '';
   }
-  return [
-    headers.length ? `headers: ${headers.join(', ')}` : 'no rate-limit headers',
-    body ? `body: "${body}"` : 'empty body',
-  ].join(' · ');
+  return { stage, status: response.status, headers, body: parseBody(text) };
+}
+
+// Short human-readable message from an upstream error body, e.g.
+// "Rate limit exceeded. Free tier: 5 calls/day. (0 calls left today)".
+function upstreamMessage(body) {
+  if (typeof body === 'string') return body.length <= 120 ? body : '';
+  const err = body?.error;
+  const message =
+    (typeof err === 'string' ? err : err?.message) ?? (typeof body?.message === 'string' ? body.message : '');
+  const remaining = err?.data?.meta?.calls_remaining_today ?? body?.meta?.calls_remaining_today;
+  if (!message) return '';
+  return remaining !== undefined ? `${message} (${remaining} calls left today)` : message;
 }
 
 function parseSseOrJson(rawText) {
@@ -76,12 +103,13 @@ function parseSseOrJson(rawText) {
 }
 
 // answered: false when no HTTP reply came back from the MCP server at all.
-function failure(status, reason, key, answered = true) {
-  return { ok: false, answered, status, reason: oneLine(reason, key) };
+// upstream: full details of what the MCP server sent back (key redacted).
+function failure(status, reason, key, answered = true, upstream = undefined) {
+  return { ok: false, answered, status, reason: oneLine(reason, key), upstream };
 }
 
 // Opens an MCP session (initialize + notifications/initialized).
-// Returns { ok: true, call } or { ok: false, status, reason }.
+// Returns { ok: true, listTools, callTool } or { ok: false, status, reason, upstream }.
 export async function openMcpSession(key) {
   let url = MCP_URL;
   let sessionId = null;
@@ -125,6 +153,7 @@ export async function openMcpSession(key) {
 
   // Sends one JSON-RPC request. Returns { ok: true, status, result } or a failure.
   async function rpc(method, params) {
+    const stage = params?.name ? `${method} ${params.name}` : method;
     let response;
     try {
       response = await post({ jsonrpc: '2.0', id: nextId++, method, params });
@@ -136,45 +165,56 @@ export async function openMcpSession(key) {
           ? `MCP server did not respond within ${TIMEOUT_MS / 1000}s`
           : 'MCP server unreachable (network error)',
         key,
-        false
+        false,
+        { stage, error: err?.name || 'Error', message: redact(err?.message, key) }
       );
     }
 
     if (!response.ok) {
-      const stage = params?.name ? `${method} ${params.name}` : method;
-      const details = await describeUpstreamError(response);
-      const authHint =
+      const upstream = await readUpstreamError(response, stage, key);
+      const message = upstreamMessage(upstream.body);
+      const hint =
         response.status === 401 || response.status === 403
           ? key
-            ? ' (API key rejected)'
-            : ' (SMITHERY_API_KEY is not set in environment)'
+            ? 'API key rejected'
+            : 'SMITHERY_API_KEY is not set in environment'
           : response.status === 429
-            ? ` (rate limited: Too Many Requests, still failing after ${MAX_429_RETRIES} retries)`
+            ? `${message ? '' : 'rate limited, '}after ${MAX_429_RETRIES} retries`
             : '';
       return failure(
         response.status,
-        `MCP server returned HTTP ${response.status} on ${stage}${authHint} · ${details}`,
-        key
+        `HTTP ${response.status} on ${stage}: ${message || 'MCP server error'}${hint ? ` [${hint}]` : ''}`,
+        key,
+        true,
+        upstream
       );
     }
 
     const returnedSession = response.headers.get('mcp-session-id');
     if (returnedSession) sessionId = returnedSession;
 
+    let text = '';
     let parsed;
     try {
-      parsed = parseSseOrJson(await response.text());
+      text = await response.text();
+      parsed = parseSseOrJson(text);
     } catch {
       parsed = null;
     }
     if (!parsed) {
-      return failure(502, `MCP server returned an unreadable response to ${method}`, key);
+      return failure(502, `MCP server returned an unreadable response to ${stage}`, key, true, {
+        stage,
+        status: response.status,
+        body: redact(text, key),
+      });
     }
     if (parsed.error) {
       return failure(
         502,
-        `MCP ${method} error ${parsed.error.code ?? ''}: ${parsed.error.message ?? 'unknown error'}`,
-        key
+        `MCP error on ${stage}: ${upstreamMessage(parsed) || `code ${parsed.error.code ?? 'unknown'}`}`,
+        key,
+        true,
+        { stage, status: response.status, body: redactValue(parsed, key) }
       );
     }
     return { ok: true, status: response.status, result: parsed.result };
@@ -211,8 +251,13 @@ export async function openMcpSession(key) {
       ? result.content.find((c) => c.type === 'text')
       : undefined;
 
+    const stage = `tools/call ${name}`;
     if (result.isError) {
-      return failure(502, `MCP tool ${name} reported an error: ${textItem?.text || 'no details'}`, key);
+      return failure(502, `MCP tool ${name} reported an error: ${textItem?.text || 'no details'}`, key, true, {
+        stage,
+        status: res.status,
+        body: redactValue(result, key),
+      });
     }
     if (result.structuredContent && typeof result.structuredContent === 'object') {
       return { ok: true, status: res.status, data: result.structuredContent };
@@ -221,10 +266,18 @@ export async function openMcpSession(key) {
       try {
         return { ok: true, status: res.status, data: JSON.parse(textItem.text) };
       } catch {
-        return failure(502, `MCP tool ${name} returned non-JSON content: ${textItem.text}`, key);
+        return failure(502, `MCP tool ${name} returned non-JSON content: ${textItem.text}`, key, true, {
+          stage,
+          status: res.status,
+          body: redact(textItem.text, key),
+        });
       }
     }
-    return failure(502, `MCP tool ${name} returned no data`, key);
+    return failure(502, `MCP tool ${name} returned no data`, key, true, {
+      stage,
+      status: res.status,
+      body: redactValue(result, key),
+    });
   }
 
   return { ok: true, status: init.status, listTools, callTool };
