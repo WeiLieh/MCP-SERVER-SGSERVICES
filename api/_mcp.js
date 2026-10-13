@@ -32,7 +32,28 @@ function redact(text, key) {
 }
 
 function oneLine(text, key) {
-  return redact(text, key).replace(/\s+/g, ' ').trim().slice(0, 200);
+  return redact(text, key).replace(/\s+/g, ' ').trim().slice(0, 500);
+}
+
+// Diagnostics for a non-2xx reply: rate-limit / retry headers and the start of
+// the body, so the real cause (e.g. a per-minute vs daily quota) is visible.
+const DIAGNOSTIC_HEADER = /rate|retry|limit|quota|reset/i;
+
+async function describeUpstreamError(response) {
+  const headers = [];
+  response.headers.forEach((value, name) => {
+    if (DIAGNOSTIC_HEADER.test(name)) headers.push(`${name}=${value}`);
+  });
+  let body = '';
+  try {
+    body = (await response.text()).replace(/\s+/g, ' ').trim().slice(0, 200);
+  } catch {
+    body = '';
+  }
+  return [
+    headers.length ? `headers: ${headers.join(', ')}` : 'no rate-limit headers',
+    body ? `body: "${body}"` : 'empty body',
+  ].join(' · ');
 }
 
 function parseSseOrJson(rawText) {
@@ -83,7 +104,9 @@ export async function openMcpSession(key) {
           signal: AbortSignal.timeout(TIMEOUT_MS),
         });
         if (response.status !== 429 || attempt >= MAX_429_RETRIES) return response;
-        await sleep(retryAfterMs(response, attempt));
+        const wait = retryAfterMs(response, attempt);
+        await response.body?.cancel();
+        await sleep(wait);
       }
     };
 
@@ -118,6 +141,8 @@ export async function openMcpSession(key) {
     }
 
     if (!response.ok) {
+      const stage = params?.name ? `${method} ${params.name}` : method;
+      const details = await describeUpstreamError(response);
       const authHint =
         response.status === 401 || response.status === 403
           ? key
@@ -126,7 +151,11 @@ export async function openMcpSession(key) {
           : response.status === 429
             ? ` (rate limited: Too Many Requests, still failing after ${MAX_429_RETRIES} retries)`
             : '';
-      return failure(response.status, `MCP server returned HTTP ${response.status}${authHint}`, key);
+      return failure(
+        response.status,
+        `MCP server returned HTTP ${response.status} on ${stage}${authHint} · ${details}`,
+        key
+      );
     }
 
     const returnedSession = response.headers.get('mcp-session-id');
